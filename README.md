@@ -43,8 +43,24 @@ both when installed as a plugin and when dropped loose into `~/.claude/skills`.
 
 ## Local development
 
+Point a marketplace at this working copy instead of GitHub:
+
 ```bash
 claude plugin marketplace add ~/IdeaProjects/claude-skills
+claude plugin install prompt-review@xavier
 ```
 
-Points the marketplace at this working copy so edits take effect without pushing.
+Install **copies** the plugin into `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`
+and pins it to a commit SHA, so edits here are not live. After changing a skill:
+
+```bash
+git commit -am "..."                      # the install pins a commit, so commit first
+claude plugin marketplace update xavier
+claude plugin update prompt-review        # restart Claude Code to apply
+```
+
+Check manifests before pushing:
+
+```bash
+claude plugin validate .
+```
