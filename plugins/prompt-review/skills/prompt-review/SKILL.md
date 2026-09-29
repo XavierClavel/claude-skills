@@ -22,7 +22,7 @@ python3 scripts/extract.py --days 14 --stats           # 1b. aggregate rates
 python3 scripts/extract.py --days 30 --correlate       # 2. where context actually pays
 python3 scripts/extract.py --days 30 --friction-only   # 3. the prompts to rewrite
 python3 scripts/extract.py --days 14 --limit 50        # full slice, only if surveying
-python3 scripts/extract.py --days 30 --project picta   # one repo
+python3 scripts/extract.py --days 30 --project myrepo  # one repo
 ```
 
 **Run 1, 2 and 3 in that order, every time.** They are cheap and they set up the whole report;
@@ -70,7 +70,7 @@ Three properties make it defensible, and you should say so when reporting it:
 
 - Most prompts score 10 (typically ~85%). The score discriminates at the bottom, not the top.
   Rank the "best" by clean work delivered, which is what `--score` does.
-- A correction is sometimes the *agent's* fault — `"you are wrong, order_flyer table exists"`
+- A correction is sometimes the *agent's* fault — `"you are wrong, the orders table exists"`
   scores the prompt down for the agent's error. Read every bottom entry and say which ones
   are not the user's fault.
 - Corrections are detected by regex, so the friction rate is a floor. `scripts/test_detector.py`
@@ -89,13 +89,13 @@ turns with no repair. That is the only definition that matters.
   If the agent asked "which module?", the missing token was the module name. Name it.
 - **Many turns, no friction → look for waste**, e.g. the agent explored to find something the
   user already knew and could have stated.
-- **A correction is not always the prompt's fault.** `"you are wrong, order_flyer table exists"`
+- **A correction is not always the prompt's fault.** `"you are wrong, the orders table exists"`
   is the agent being wrong, not the prompt being unclear. Say so — crediting the user is as
   important as coaching them, and a tool that blames them for every correction gets ignored.
 - Weigh a repeated small leak over a spectacular one-off. Habits are what change.
 
 Score each reviewed prompt **1-5** and always attach the evidence: *"3/5 — I asked which of
-the 5 modules; `:picta-api:` would have saved a turn."*
+the 5 modules; `:api-module:` would have saved a turn."*
 
 ## Cold vs warm: where context actually pays
 

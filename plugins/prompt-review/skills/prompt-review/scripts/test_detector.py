@@ -24,11 +24,11 @@ CASES = [
     # Real repairs.
     ("no back cover -> empty page", True),
     ("no i meant that behaviour must be the same as before", True),
-    ("you are wrong, order_flyer table exists", True),
+    ("you are wrong, the orders table exists", True),
     ("no durations, all slots are 90 min", True),
     ("do the opposite, don't send flyers for test orders", True),
     ("wrong, update from master", True),
-    ("should not be deleted from tricount but from our db", True),
+    ("should not be deleted from the api but from our db", True),
 ]
 
 
