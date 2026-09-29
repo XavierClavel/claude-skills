@@ -1,0 +1,10 @@
+{
+  "name": "prompt-review",
+  "description": "Grade your own Claude Code prompts against what actually happened after each one, and get rewritten before/after versions of the ones that cost you turns.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Xavier Clavel",
+    "url": "https://github.com/XavierClavel"
+  },
+  "keywords": ["prompting", "coaching", "analytics", "transcripts"]
+}

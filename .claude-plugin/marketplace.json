@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "xavier",
+  "description": "Xavier Clavel's personal Claude Code skills.",
+  "owner": {
+    "name": "Xavier Clavel",
+    "url": "https://github.com/XavierClavel"
+  },
+  "plugins": [
+    {
+      "name": "prompt-review",
+      "description": "Grade your own Claude Code prompts against what actually happened after each one, and get rewritten before/after versions of the ones that cost you turns.",
+      "source": "./plugins/prompt-review",
+      "category": "productivity"
+    }
+  ]
+}
