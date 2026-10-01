@@ -29,7 +29,9 @@ python3 scripts/extract.py --days 30 --friction-only  # the prompts worth rewrit
 ```
 
 The score is `10 × 0.5^(waste/12)`, where waste counts only work that had to be redone.
-Length and turn count are never penalised: a 442-turn prompt with no repair is a 10.
+Length and step count are never penalised: a 442-step prompt with no repair is a 10.
+A *step* is one assistant content block (thinking, text, or a single tool call); an assistant
+reply is roughly 1.5-2.6 of them.
 
 ## Adding a skill
 

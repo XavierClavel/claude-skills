@@ -38,7 +38,8 @@ Each record carries `prompt` and an `outcome`:
 | `next_looks_like_correction` | Regex hint only. **Read `next_prompt` yourself** and judge |
 | `interrupted_by_user` | The prompt let the agent run the wrong way |
 | `ended_on_a_question` | The agent handed work back instead of finishing |
-| `assistant_turns` / `tool_calls` | Cost of the prompt |
+| `assistant_steps` / `tool_calls` | Cost of the prompt. **A step is one assistant content block** (thinking, text, or one tool call) — a reply is ~1.5-2.6 of them |
+| `assistant_replies` | Actual assistant messages. Use this when talking to the user about "turns"; use steps for the scoring maths |
 | `seq` | Position in session. `1` is a cold start and is judged differently — see below |
 | `seconds_to_next_prompt` | Long gap + no correction usually means it just worked |
 
@@ -48,23 +49,25 @@ Every record carries a `score` from 0 to 10, and `--score` prints the period fig
 distribution, and the best and worst prompts. The model is in `score()` in `extract.py`:
 
 ```
-waste (turn-equivalents)                     ROUND_TRIP  = 3   a human round trip
-  early clarification (turn k <= 5)  k + 3   HALFLIFE    = 12  waste that halves the score
+waste (in STEPS, not replies)                ROUND_TRIP  = 3   a human round trip
+  early clarification (step k <= 5)  k + 3   HALFLIFE    = 12  waste that halves the score
   interrupt                          3 each, max 2       CORRECTION_CAP = 24
-  next prompt corrects it            min(turns, 24)
+  next prompt corrects it            min(steps, 24)
   handed back on a question          3
 score = 10 * 0.5 ** (waste / 12)
 ```
 
 Three properties make it defensible, and you should say so when reporting it:
 
-- **Waste is absolute, not a share of the window.** A prompt that sends the agent 40 turns
-  down the wrong path scores worse than one caught after 3. Normalising by turns would have
+- **Waste is absolute, not a share of the window.** A prompt that sends the agent 40 steps
+  down the wrong path scores worse than one caught after 3. Normalising by steps would have
   rewarded the expensive mistakes.
-- **Length and turn count are never penalised.** A 442-turn prompt with no repair is a 10.
+- **Length and step count are never penalised.** A 442-step prompt with no repair is a 10.
   Big clean runs are what good prompts look like.
+- **Report counts to the user in replies, not steps**, or say which unit you mean. 442 steps
+  is ~250 replies, and "442 turns" overstates it by about double.
 - **An interrupt is charged as one redirect, not as its whole prefix.** How much an interrupt
-  threw away is not knowable — the agent may have gone wrong on its last turn or its first.
+  threw away is not knowable — the agent may have gone wrong on its last step or its first.
 
 **Limits to state in the report, not hide:**
 

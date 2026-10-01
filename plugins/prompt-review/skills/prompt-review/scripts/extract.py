@@ -38,11 +38,14 @@ NOT_CORRECTION = re.compile(
 )
 INTERRUPT = re.compile(r"\[Request interrupted by user")
 
-# Waste is counted in turn-equivalents. A human round trip costs more than an agent turn
-# because it spends the user's attention, which is the scarce resource.
+# The unit everywhere below is a STEP: one assistant content block (a thinking block, a text
+# block, or one tool call), which is one transcript line. An assistant reply averages ~2.6 of
+# them, so a step is finer-grained than a conversational turn -- which is the point, since it
+# tracks work done rather than messages sent. Every constant here is calibrated in steps.
+# A human round trip costs more than a step: it spends the user's attention, the scarce thing.
 ROUND_TRIP = 3
 EARLY = 5   # a clarification later than this is about something that emerged, not the prompt
-HALFLIFE = 12   # turn-equivalents of waste that halve the score
+HALFLIFE = 12   # steps of waste that halve the score
 CORRECTION_CAP = 24  # a single correction never voids a long productive session outright
 PASTED = re.compile(r"<pasted_content[^>]*>.*?</pasted_content>", re.S)
 SYSREMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
@@ -70,11 +73,13 @@ def clean(raw):
 def score(outcome):
     """0-10: how much work this prompt misdirected. 10 means nothing had to be redone.
 
+    Counted in steps (see ROUND_TRIP above), not in conversational turns.
+
     Waste is ABSOLUTE, not a share of the window: a prompt that sends the agent 40 turns down
     the wrong path is worse than one caught after 3, so normalising by turns would reward the
     expensive mistakes. Long clean runs stay at 10 -- length is not a fault.
     """
-    turns = max(outcome["assistant_turns"], 1)
+    turns = max(outcome["assistant_steps"], 1)
     wasted = 0.0
 
     k = outcome["turns_before_clarification"]
@@ -137,7 +142,8 @@ def extract(path, max_chars):
         cmd = COMMAND_NAME.search(raw)
         end = typed[n + 1] if n + 1 < len(typed) else len(rows)
 
-        turns = tools = interrupts = 0
+        turns = tools = interrupts = replies = 0
+        seen_msgs = set()
         clarified = False
         turns_to_clarify = None
         turns_to_interrupt = None
@@ -149,7 +155,14 @@ def extract(path, max_chars):
             if d2.get("type") == "assistant":
                 msg = d2.get("message", {})
                 turns += 1
-                out_tokens += (msg.get("usage") or {}).get("output_tokens", 0) or 0
+                # One assistant message is split across several transcript lines, one per content
+                # block, and every line repeats the whole message's usage -- so dedupe by id.
+                mid = msg.get("id")
+                if mid is None or mid not in seen_msgs:
+                    if mid is not None:
+                        seen_msgs.add(mid)
+                    replies += 1
+                    out_tokens += (msg.get("usage") or {}).get("output_tokens", 0) or 0
                 for b in msg.get("content", []) or []:
                     if not isinstance(b, dict):
                         continue
@@ -181,7 +194,8 @@ def extract(path, max_chars):
                 "prompt": body[:max_chars],
                 "truncated": len(body) > max_chars,
                 "outcome": {
-                    "assistant_turns": turns,
+                    "assistant_steps": turns,
+                    "assistant_replies": replies,
                     "tool_calls": tools,
                     "output_tokens": out_tokens,
                     "asked_clarifying_question": clarified,
@@ -269,7 +283,7 @@ def main():
         )
         return
 
-    records = [r for r in records if r["outcome"]["assistant_turns"] >= args.min_turns]
+    records = [r for r in records if r["outcome"]["assistant_steps"] >= args.min_turns]
     if args.score:
         import statistics as stat
 
@@ -280,7 +294,7 @@ def main():
         # landed on target", so one 400-turn disaster outweighs twenty clean one-liners.
         tw_waste = tw_total = 0.0
         for r in records:
-            t = max(r["outcome"]["assistant_turns"], 1)
+            t = max(r["outcome"]["assistant_steps"], 1)
             tw_total += t
             tw_waste += t * (1 - r["score"] / 10)
         weighted = round(10 * (1 - tw_waste / tw_total), 1)
@@ -299,8 +313,8 @@ def main():
 
         # Among perfect scores, the best prompt is the one that drove the most clean work.
         best = sorted([r for r in records if r["score"] >= 10],
-                      key=lambda r: -r["outcome"]["assistant_turns"])[: args.top]
-        worst = sorted(records, key=lambda r: (r["score"], -r["outcome"]["assistant_turns"]))[: args.top]
+                      key=lambda r: -r["outcome"]["assistant_steps"])[: args.top]
+        worst = sorted(records, key=lambda r: (r["score"], -r["outcome"]["assistant_steps"]))[: args.top]
 
         def show(title, rs):
             print(f"\n=== {title} ===")
@@ -314,7 +328,7 @@ def main():
                 if o["next_looks_like_correction"]:
                     flags.append("corrected")
                 kind = "COLD" if r["seq"] == 1 else "warm"
-                print(f"{r['score']:>4}/10 {kind} {o['assistant_turns']:>4}t {' '.join(flags)}")
+                print(f"{r['score']:>4}/10 {kind} {o['assistant_steps']:>4}s {' '.join(flags)}")
                 print(f"       {r['prompt'][:180]!r}")
                 if o["next_prompt"]:
                     print(f"    -> {o['next_prompt'][:120]!r}")
@@ -334,7 +348,7 @@ def main():
                 return
             n = len(rs)
             print(f"{label:<20} n={n:<5} friction={sum(map(friction, rs)) / n:>6.1%}"
-                  f"  med_turns={int(stat.median([r['outcome']['assistant_turns'] for r in rs])):>4}")
+                  f"  med_steps={int(stat.median([r['outcome']['assistant_steps'] for r in rs])):>4}")
 
         print(f"TOTAL n={len(records)}  ({args.days}d)\n")
         # A first prompt has no conversation behind it; a later one inherits everything said.
