@@ -56,7 +56,9 @@ Install **copies** the plugin into `~/.claude/plugins/cache/<marketplace>/<plugi
 and pins it to a commit SHA, so edits here are not live. After changing a skill:
 
 ```bash
-git commit -am "..."                      # the install pins a commit, so commit first
+# Bump "version" in plugins/<plugin>/.claude-plugin/plugin.json FIRST -- `plugin update`
+# compares versions, so without a bump it reports "already at the latest" and does nothing.
+git commit -am "..." && git push
 claude plugin marketplace update xavier
 claude plugin update prompt-review        # restart Claude Code to apply
 ```
