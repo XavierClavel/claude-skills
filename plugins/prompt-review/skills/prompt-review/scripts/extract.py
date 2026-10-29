@@ -6,6 +6,7 @@ evidence a prompt worked or not. A checklist score cannot see them.
 """
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -37,13 +38,42 @@ NOT_CORRECTION = re.compile(
     re.I,
 )
 INTERRUPT = re.compile(r"\[Request interrupted by user")
+# A reply that only lets the agent carry on. After a window that ended on a question, it means
+# the agent stopped to ask for something the prompt could have granted up front.
+GO_AHEAD = re.compile(
+    r"^\s*(yes|yep|yeah|ok|okay|sure|go|go ahead|go for it|do it|continue|carry on|proceed"
+    r"|oui|vas-y|((rebase|push)\s+(and|then)\s+)?open\s+(a\s+)?pr)\s*[.!]*\s*$",
+    re.I,
+)
+
+# Searching before the first edit: what a prompt could have cut short by naming the thing the
+# agent went looking for. Scratch and temp files are not edits, and a heredoc's body is script,
+# not shell, so only its own writes count.
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+SEARCH_TOOLS = {"Read", "Grep", "Glob", "LSP", "WebFetch", "WebSearch"}
+SEARCH_SHELL = re.compile(
+    r"^\s*(?:cd\s+\S+\s*(?:&&|;)\s*)?(?:rtk\s+)?"
+    r"(?:grep|rg|find|ls|cat|sed\s+-n|head|tail|wc|tree"
+    r"|git\s+(?:log|show|grep|diff|ls-files|ls-tree|blame|status))\b"
+)
+SHELL_WRITE = re.compile(r"\bsed\s+-i|\bperl\s+-pi|\btee\b|\bgit\s+apply\b|\bapply_patch\b"
+                         r"|(?<![\d&<>=-])>{1,2}\s*(?!&|/dev/null)([~./\w$\"'][^\s;|&]*)")
+SCRIPT_WRITE = re.compile(r"open\([^)]*,\s*['\"][wa]|\.write_text\(|\.write\(")
+SCRATCH = re.compile(r"/tmp/|/private/|scratchpad|/var/folders/")
+ABS_PATH = re.compile(r"(?<![\w.$])((?:~|\$HOME|/Users|/home)/[^\s\"'`;|&<>(),]+)")
+NOT_A_REPO = ("/.claude/", "/Library/")
+SHORTCUT_CALLS = 25            # this many calls before the first edit is worth a look
+SHORTCUT_CALLS_ELSEWHERE = 10  # fewer, when they went into another repository
 
 # The unit everywhere below is a STEP: one assistant content block (a thinking block, a text
 # block, or one tool call), which is one transcript line. An assistant reply averages ~2.6 of
 # them, so a step is finer-grained than a conversational turn -- which is the point, since it
 # tracks work done rather than messages sent. Every constant here is calibrated in steps.
 # A human round trip costs more than a step: it spends the user's attention, the scarce thing.
-ROUND_TRIP = 3
+# Priced at one HALFLIFE, about a warm prompt's worth of agent work, so each time a prompt makes
+# the user come back its score halves. At 3 steps, a month where one prompt in five needed the
+# user again still averaged 9.6.
+ROUND_TRIP = 12
 EARLY = 5   # a clarification later than this is about something that emerged, not the prompt
 HALFLIFE = 12   # steps of waste that halve the score
 CORRECTION_CAP = 24  # a single correction never voids a long productive session outright
@@ -100,6 +130,32 @@ def score(outcome):
     return round(10 * 0.5 ** (wasted / HALFLIFE), 1)
 
 
+def asked_early(r):
+    k = r["outcome"]["turns_before_clarification"]
+    return k is not None and k <= EARLY
+
+
+def friction(r):
+    o = r["outcome"]
+    return bool(asked_early(r) or o["interrupted_by_user"] or o["next_looks_like_correction"])
+
+
+def handed_back(r):
+    o = r["outcome"]
+    return o["ended_on_a_question"] and not o["is_last_in_session"]
+
+
+def period_score(records):
+    """Turn-weighted: the share of the agent work commissioned that landed on target, so one
+    400-turn disaster outweighs twenty clean one-liners. None when there is nothing to score."""
+    total = waste = 0.0
+    for r in records:
+        t = max(r["outcome"]["assistant_steps"], 1)
+        total += t
+        waste += t * (1 - r["score"] / 10)
+    return 10 * (1 - waste / total) if total else None
+
+
 def parse_ts(s):
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
@@ -122,6 +178,72 @@ def read_session(path):
     except OSError:
         return []
     return rows
+
+
+def is_edit(name, inp):
+    if name in EDIT_TOOLS:
+        return not SCRATCH.search(str(inp.get("file_path") or inp.get("notebook_path") or ""))
+    if name != "Bash":
+        return False
+    cmd = inp.get("command", "")
+    shell = cmd.split("<<")[0]
+    for m in SHELL_WRITE.finditer(shell):
+        if not (m.group(1) and SCRATCH.search(m.group(1))):
+            return True
+    return "<<" in cmd and bool(SCRIPT_WRITE.search(cmd)) and not SCRATCH.search(cmd)
+
+
+def is_search(name, inp):
+    if name in SEARCH_TOOLS or (name == "Agent" and inp.get("subagent_type") == "Explore"):
+        return True
+    return name == "Bash" and bool(SEARCH_SHELL.match(inp.get("command", "")))
+
+
+_ROOTS = {}
+
+
+def repo_of(path):
+    """The repository a path belongs to, by its main checkout (a worktree's `.git` file names
+    it), so a worktree and its main clone count as one repo. None outside any repository."""
+    d = path
+    while d and d != "/" and not os.path.isdir(d):
+        d = os.path.dirname(d)
+    if d in _ROOTS:
+        return _ROOTS[d]
+    root, cur = None, d
+    while cur and cur != "/":
+        git = os.path.join(cur, ".git")
+        if os.path.isdir(git):
+            root = cur
+            break
+        if os.path.isfile(git):
+            try:
+                with open(git, encoding="utf-8") as fh:
+                    m = re.match(r"gitdir:\s*(.+?)/\.git(?:/|$)", fh.read().strip())
+            except OSError:
+                m = None
+            root = m.group(1) if m else cur
+            break
+        cur = os.path.dirname(cur)
+    _ROOTS[d] = root
+    return root
+
+
+def other_repos(inp, cwd):
+    """Repositories a tool call reached that the session isn't working in. A repo whose name is
+    part of the working directory is the session's own, which covers worktrees kept elsewhere."""
+    home = set(cwd.split(os.sep))
+    found = set()
+    for p in ABS_PATH.findall(json.dumps(inp)):
+        p = os.path.expanduser(p.replace("$HOME", "~", 1))
+        if (cwd and p.startswith(cwd)) or any(x in p for x in NOT_A_REPO) or SCRATCH.search(p):
+            continue
+        root = repo_of(p)
+        name = os.path.basename(root) if root else ""
+        # A hidden checkout (~/.nvm, ~/.oh-my-zsh) is a tool's install, not a project.
+        if name and not name.startswith(".") and name not in home:
+            found.add(name)
+    return found
 
 
 def extract(path, max_chars):
@@ -149,6 +271,9 @@ def extract(path, max_chars):
         turns_to_interrupt = None
         out_tokens = 0
         last_assistant_text = ""
+        cwd = d.get("cwd", "")
+        before_edit = searches = None   # stay None while no edit has happened
+        calls, searched, elsewhere, notes = 0, 0, set(), []
         for d2 in rows[i + 1 : end]:
             if d2.get("isSidechain"):
                 continue
@@ -172,8 +297,18 @@ def extract(path, max_chars):
                             clarified = True
                             if turns_to_clarify is None:
                                 turns_to_clarify = turns
+                        if before_edit is None:
+                            inp = b.get("input") or {}
+                            if is_edit(b.get("name"), inp):
+                                before_edit, searches = calls, searched
+                            else:
+                                calls += 1
+                                searched += is_search(b.get("name"), inp)
+                                elsewhere |= other_repos(inp, cwd)
                     elif b.get("type") == "text" and b.get("text", "").strip():
                         last_assistant_text = b["text"]
+                        if before_edit is None and len(notes) < 2:
+                            notes.append(b["text"].strip()[:200])
             elif d2.get("type") == "user":
                 if INTERRUPT.search(text_of(d2.get("message", {}))):
                     interrupts += 1
@@ -209,12 +344,109 @@ def extract(path, max_chars):
                     "next_looks_like_correction": bool(
                         nxt and CORRECTION.search(nxt[:200]) and not NOT_CORRECTION.search(nxt[:200])
                     ),
+                    "next_is_go_ahead": bool(nxt and GO_AHEAD.match(nxt)),
+                    # Only for prompts that led to an edit: the work spent finding where and how.
+                    "calls_before_edit": before_edit,
+                    "searches_before_edit": searches,
+                    "other_repos_before_edit": sorted(elsewhere) if before_edit is not None else [],
+                    "notes_before_edit": notes if before_edit is not None else [],
                     "is_last_in_session": end >= len(rows),
                 },
             }
         rec["score"] = score(rec["outcome"])
         out.append(rec)
     return out
+
+
+def load(days, project=None, max_chars=1200):
+    """Every typed prompt of the last `days` days, oldest first."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    records = []
+    for path in glob(os.path.join(PROJECTS, "*", "*.jsonl")):
+        if project and project not in path:
+            continue
+        try:
+            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < cutoff:
+                continue
+        except OSError:
+            continue
+        records.extend(extract(path, max_chars))
+    records = [r for r in records if (parse_ts(r["ts"]) or cutoff) >= cutoff]
+    records.sort(key=lambda r: r["ts"])
+    return records
+
+
+def transcript_horizon():
+    """Claude Code deletes transcripts older than cleanupPeriodDays (30 by default), so anything
+    before this instant is only partly on disk.
+
+    The oldest transcript caps it too. Raising the setting doesn't bring back what was already
+    deleted, and a new machine has nothing older than its first session."""
+    days = 30
+    try:
+        with open(os.path.expanduser("~/.claude/settings.json"), encoding="utf-8") as fh:
+            days = int(json.load(fh).get("cleanupPeriodDays", 30))
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    horizon = datetime.now(timezone.utc) - timedelta(days=days)
+    mtimes = []
+    for path in glob(os.path.join(PROJECTS, "*", "*.jsonl")):
+        try:
+            mtimes.append(os.path.getmtime(path))
+        except OSError:
+            continue
+    if mtimes:
+        horizon = max(horizon, datetime.fromtimestamp(min(mtimes), timezone.utc))
+    return horizon
+
+
+def weekly(records):
+    """One row per week (starting Monday, UTC) with the numbers the evolution dashboard plots.
+
+    `steps` and `prompts` are the weights that combine weeks exactly: the score by steps, the
+    rates by prompts. A week is `complete` once it is over and none of it is past the horizon.
+    """
+    import statistics as stat
+
+    now, horizon = datetime.now(timezone.utc), transcript_horizon()
+    weeks = {}
+    for r in records:
+        ts = parse_ts(r["ts"])
+        if ts:
+            weeks.setdefault((ts - timedelta(days=ts.weekday())).date(), []).append(r)
+
+    rows = []
+    for monday, rs in sorted(weeks.items()):
+        start = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+        n = len(rs)
+        cold = [r["score"] for r in rs if r["seq"] == 1]
+        warm = [r["score"] for r in rs if r["seq"] >= 2]
+        weights = [max(r["outcome"]["assistant_steps"], 1) for r in rs]
+        mu = period_score(rs)
+        rows.append({
+            "week": monday.isoformat(),
+            "prompts": n,
+            "steps": sum(weights),
+            "score": round(mu, 2),
+            # Standard error of that weighted mean, so a change in score can be told from noise.
+            "score_se": round(math.sqrt(sum(t * t * (r["score"] - mu) ** 2 for t, r in zip(weights, rs)))
+                              / sum(weights), 3),
+            "cold_score": round(stat.mean(cold), 2) if cold else None,
+            "warm_score": round(stat.mean(warm), 2) if warm else None,
+            "clean_share": round(sum(1 for r in rs if r["score"] >= 10) / n, 4),
+            "friction_rate": round(sum(map(friction, rs)) / n, 4),
+            "clarify_rate": round(sum(map(asked_early, rs)) / n, 4),
+            "interrupt_rate": round(sum(1 for r in rs if r["outcome"]["interrupted_by_user"]) / n, 4),
+            "correction_rate": round(sum(1 for r in rs if r["outcome"]["next_looks_like_correction"]) / n, 4),
+            "handback_rate": round(sum(map(handed_back, rs)) / n, 4),
+            "go_ahead_rate": round(
+                sum(1 for r in rs if handed_back(r) and r["outcome"]["next_is_go_ahead"]) / n, 4
+            ),
+            "median_chars": int(stat.median(r["chars"] for r in rs)),
+            "cold_prompts": len(cold),
+            "complete": start >= horizon and start + timedelta(days=7) <= now,
+        })
+    return rows
 
 
 def main():
@@ -234,30 +466,16 @@ def main():
     ap.add_argument("--top", type=int, default=8, help="how many best and worst to show (default 8)")
     ap.add_argument("--correlate", action="store_true",
                     help="where context actually pays: friction by length, split cold vs warm")
+    ap.add_argument("--timeline", action="store_true",
+                    help="one JSON row per week: score, friction and its parts, go-aheads")
+    ap.add_argument("--shortcuts", action="store_true",
+                    help="prompts that searched heavily before their first edit, to judge by hand")
     args = ap.parse_args()
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
-    records = []
-    for path in glob(os.path.join(PROJECTS, "*", "*.jsonl")):
-        if args.project and args.project not in path:
-            continue
-        try:
-            if datetime.fromtimestamp(os.path.getmtime(path), timezone.utc) < cutoff:
-                continue
-        except OSError:
-            continue
-        records.extend(extract(path, args.max_chars))
-
-    records = [r for r in records if (parse_ts(r["ts"]) or cutoff) >= cutoff]
+    records = load(args.days, args.project, args.max_chars)
     if args.skip_slash:
         records = [r for r in records if not r["slash_command"]]
     records = [r for r in records if r["chars"] >= args.min_chars]
-    records.sort(key=lambda r: r["ts"])
-
-    def friction(r):
-        o = r["outcome"]
-        early = o["turns_before_clarification"] is not None and o["turns_before_clarification"] <= 5
-        return early or o["interrupted_by_user"] or o["next_looks_like_correction"]
 
     if args.stats:
         n = len(records) or 1
@@ -284,23 +502,49 @@ def main():
         return
 
     records = [r for r in records if r["outcome"]["assistant_steps"] >= args.min_turns]
+    if args.timeline:
+        for row in weekly(records):
+            print(json.dumps(row))
+        return
+
+    if args.shortcuts:
+        # Candidates only. Whether the user already knew what the agent went looking for is a
+        # judgment the transcript can't make, so nothing here touches the score.
+        edits = [r for r in records if r["outcome"]["calls_before_edit"] is not None]
+
+        def heavy(r):
+            o = r["outcome"]
+            return o["calls_before_edit"] >= SHORTCUT_CALLS or (
+                o["other_repos_before_edit"] and o["calls_before_edit"] >= SHORTCUT_CALLS_ELSEWHERE)
+
+        found = sorted(filter(heavy, edits), key=lambda r: -r["outcome"]["calls_before_edit"])
+        print(f"{len(edits)} prompts led to an edit; {len(found)} searched heavily first "
+              f"({SHORTCUT_CALLS}+ calls, or {SHORTCUT_CALLS_ELSEWHERE}+ reaching another repo)")
+        for r in found[: args.top]:
+            o = r["outcome"]
+            where = f"  other repos: {', '.join(o['other_repos_before_edit'])}" if o["other_repos_before_edit"] else ""
+            print(f"\n{o['calls_before_edit']:>3} calls before the first edit, {o['searches_before_edit']} of them "
+                  f"searches{where}   {'COLD' if r['seq'] == 1 else 'warm'} {r['ts'][:10]} {r['project'][-40:]}")
+            print(f"   prompt: {r['prompt'][:200]!r}")
+            for note in o["notes_before_edit"]:
+                print(f"   agent:  {note!r}")
+            if o["next_prompt"]:
+                print(f"   next:   {o['next_prompt'][:120]!r}")
+        return
+
     if args.score:
         import statistics as stat
 
         if not records:
             print("no prompts in window")
             return
-        # Turn-weighted is the headline: it answers "what share of the agent work I commissioned
-        # landed on target", so one 400-turn disaster outweighs twenty clean one-liners.
-        tw_waste = tw_total = 0.0
-        for r in records:
-            t = max(r["outcome"]["assistant_steps"], 1)
-            tw_total += t
-            tw_waste += t * (1 - r["score"] / 10)
-        weighted = round(10 * (1 - tw_waste / tw_total), 1)
+        # Turn-weighted is the headline: see period_score.
+        weighted = round(period_score(records), 1)
         mean = round(stat.mean(r["score"] for r in records), 1)
 
+        clean = sum(1 for r in records if r["score"] >= 10) / len(records)
         print(f"PERIOD SCORE  {weighted}/10   (turn-weighted, {args.days}d, n={len(records)})")
+        print(f"  clean prompts (needed nothing more from you): {clean:.0%}")
         print(f"  unweighted mean per prompt: {mean}/10")
         print(f"  cold openers (seq 1):       {round(stat.mean([r['score'] for r in records if r['seq'] == 1] or [0]), 1)}/10")
         print(f"  warm prompts (seq 2+):      {round(stat.mean([r['score'] for r in records if r['seq'] >= 2] or [0]), 1)}/10")
