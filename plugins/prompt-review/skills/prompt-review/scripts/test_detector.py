@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Regression cases for the correction detector. Run after touching CORRECTION/NOT_CORRECTION.
+"""Regression cases for the correction and go-ahead detectors. Run after touching CORRECTION,
+NOT_CORRECTION or GO_AHEAD.
 
-Every case here is a real `next_prompt` from the transcripts that the detector once got wrong.
+Every case here is a real `next_prompt` from the transcripts.
 """
 import importlib.util
 import os
@@ -31,6 +32,21 @@ CASES = [
     ("should not be deleted from the api but from our db", True),
 ]
 
+# A bare go-ahead grants nothing new; one that adds a condition or a choice is real input.
+GO_AHEAD_CASES = [
+    ("open pr", True),
+    ("yes", True),
+    ("go", True),
+    ("carry on", True),
+    ("do it", True),
+    ("rebase and open pr", True),
+    ("open pr, backend only", False),
+    ("go for option 2", False),
+    ("push branch, no pr yet", False),
+    ("fix all", False),
+    ("continue with the ios repo", False),
+]
+
 
 def main():
     bad = 0
@@ -38,8 +54,14 @@ def main():
         got = bool(m.CORRECTION.search(text) and not m.NOT_CORRECTION.search(text))
         if got != want:
             bad += 1
-            print(f"FAIL want={want} got={got}: {text[:70]!r}")
-    print(f"{len(CASES) - bad}/{len(CASES)} passed")
+            print(f"FAIL correction want={want} got={got}: {text[:70]!r}")
+    for text, want in GO_AHEAD_CASES:
+        got = bool(m.GO_AHEAD.match(text))
+        if got != want:
+            bad += 1
+            print(f"FAIL go-ahead want={want} got={got}: {text[:70]!r}")
+    total = len(CASES) + len(GO_AHEAD_CASES)
+    print(f"{total - bad}/{total} passed")
     return 1 if bad else 0
 
 

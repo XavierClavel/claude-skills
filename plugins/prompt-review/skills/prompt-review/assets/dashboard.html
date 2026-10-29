@@ -1,0 +1,681 @@
+<meta name="dash-one-writer">
+<meta name="prompt-review-page" content="4">
+<style>
+  .pr { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); }
+  .pr-head { display: grid; gap: var(--cds-gap-xs); }
+  .pr-title { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); text-wrap: balance; }
+  .pr-lede, .pr-note, .pr-foot { margin: 0; color: var(--color-fg-muted); }
+  .pr-lede { font-size: var(--cds-font-size-body); max-width: 65ch; }
+  .pr-note, .pr-foot { font-size: var(--cds-font-size-caption); }
+  .pr-note b { font-weight: var(--cds-font-weight-medium); color: var(--color-fg); font-variant-numeric: tabular-nums; }
+  .pr-say { margin: 0; font-size: var(--cds-font-size-body); max-width: 65ch; }
+  .pr-say b { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .pr-section { display: grid; gap: var(--cds-gap-md); }
+  .pr-section > h2, .pr-card h2 { margin: 0; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); }
+  .pr-tiles, .pr-grid { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); }
+  .pr-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+  .pr-card, .pr-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); align-content: start; min-width: 0; }
+  .pr-tile h3, .pr-mini h3 { margin: 0; font-size: var(--cds-font-size-body); font-weight: var(--cds-font-weight-medium); }
+  .pr-big { margin: 0; font-family: var(--font-anthropic-serif); font-weight: 400; font-size: calc(var(--cds-font-size-title) * 1.5); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .pr .is-good { color: var(--color-ok); }
+  .pr .is-bad { color: var(--color-bad); }
+  .pr-minis { display: grid; gap: var(--cds-gap-md); grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); }
+  .pr-mini { display: grid; gap: var(--cds-gap-xs); align-content: start; min-width: 0; }
+  .pr-mini-value { margin: 0; font-variant-numeric: tabular-nums; }
+  .pr-spark, .pr-chart { position: relative; min-width: 0; }
+  .pr-spark { height: 44px; }
+  .pr-minis .pr-spark { height: 56px; }
+  .pr-chart { min-height: 260px; }
+  .pr-chart.is-short { min-height: 220px; }
+  .pr svg { display: block; overflow: visible; }
+  .pr-tick { fill: var(--color-fg-muted); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+  .pr-endlabel { font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); font-variant-numeric: tabular-nums; }
+  .pr-tip { position: absolute; z-index: 2; pointer-events: none; max-width: 16rem; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); border-radius: var(--cds-radius); box-shadow: var(--cds-shadow-popover); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+  .pr-tip .pr-tip-head { color: var(--cds-text-secondary); }
+  .pr-tablebox { overflow: auto; max-height: 28rem; }
+  .pr-table { width: 100%; border-collapse: collapse; font-size: var(--cds-font-size-body); font-variant-numeric: tabular-nums; }
+  .pr-table th { position: sticky; top: 0; background: var(--color-panel); text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); }
+  .pr-table td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .pr-table .num { text-align: right; white-space: nowrap; }
+  .pr-table .pr-change { min-width: 14rem; }
+  .pr-table .is-partial { color: var(--color-fg-muted); }
+  .pr-table tr.is-now td { font-weight: var(--cds-font-weight-medium); }
+  .pr-table .pr-when { white-space: nowrap; color: var(--color-fg-muted); }
+  .pr-table tr.is-now .pr-when { color: var(--color-fg); }
+  .pr [data-dash-source-state=empty] { color: transparent; }
+  .pr [data-dash-source-state=refreshing] { opacity: .5; transition: opacity var(--cds-dur-slow); }
+  @media (max-width: 40rem) { .pr-table .pr-hide-narrow { display: none; } }
+</style>
+
+<div class="pr">
+  <header class="pr-head" id="top">
+    <h1 class="pr-title">Prompting evolution</h1>
+    <p class="pr-lede">How well prompts to Claude Code land, week by week. Each prompt is judged by what it caused rather than how it reads: whether the agent had to ask, was stopped, was corrected, or waited for a go-ahead.</p>
+    <p class="pr-note">Tracking since the week of <b data-draw="value" data-source="tracking" data-row="0" data-field="since" data-format="day">—</b> · <b data-draw="value" data-source="tracking" data-row="0" data-field="complete_weeks" data-format="int">—</b> complete weeks · <b data-draw="value" data-source="tracking" data-row="0" data-field="prompts" data-format="int">—</b> prompts · last review <b data-draw="value" data-source="tracking" data-row="0" data-field="last_review" data-format="day">—</b></p>
+  </header>
+
+  <section class="pr-section" id="headline">
+    <h2>Where it stands</h2>
+    <p class="pr-note">Each figure is over the last <span data-draw="window">—</span> complete weeks; the line under it is every complete week so far.</p>
+    <div class="pr-tiles">
+      <article class="pr-tile" id="tile-score">
+        <h3>Score</h3>
+        <p class="pr-big" data-draw="value" data-source="recent" data-row="0" data-field="score" data-format="score">—</p>
+        <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="score" data-format="score"></div>
+        <p class="pr-note">Out of 10. Each time a prompt needed its author to come back halves its score, and a run sent the wrong way costs more. Long prompts and long runs are never penalised. Weighted by how much work each prompt started.</p>
+      </article>
+      <article class="pr-tile" id="tile-clean">
+        <h3>Clean prompts</h3>
+        <p class="pr-big" data-draw="value" data-source="recent" data-row="0" data-field="clean_share" data-format="pct">—</p>
+        <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="clean_share" data-format="pct"></div>
+        <p class="pr-note">Prompts that needed nothing more: no question back, interrupt, correction or go-ahead.</p>
+      </article>
+      <article class="pr-tile" id="tile-friction">
+        <h3>Friction</h3>
+        <p class="pr-big" data-draw="value" data-source="recent" data-row="0" data-field="friction_rate" data-format="pct">—</p>
+        <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="friction_rate" data-format="pct"></div>
+        <p class="pr-note">Prompts followed by an early question from the agent, an interrupt, or a correction.</p>
+      </article>
+      <article class="pr-tile" id="tile-go-ahead">
+        <h3>Bare go-aheads</h3>
+        <p class="pr-big" data-draw="value" data-source="recent" data-row="0" data-field="go_ahead_rate" data-format="pct">—</p>
+        <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="go_ahead_rate" data-format="pct"></div>
+        <p class="pr-note">The agent stopped to ask and the answer was only yes, go or open pr: the prompt could have said so.</p>
+      </article>
+      <article class="pr-tile" id="tile-prompts">
+        <h3>Prompts a week</h3>
+        <p class="pr-big" data-draw="value" data-source="recent" data-row="0" data-field="prompts_per_week" data-format="int">—</p>
+        <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="prompts" data-format="int"></div>
+        <p class="pr-note">Typed prompts the agent worked on.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="pr-grid">
+    <article class="pr-card" id="score-chart">
+      <h2>Weekly score</h2>
+      <p class="pr-note">Hollow points are weeks the transcripts only partly cover. Dashed lines mark reviews; hover a week to see the change a review asked for.</p>
+      <div class="pr-chart" data-draw="week-chart" data-source="weeks reviews" data-metric="score" data-format="score"></div>
+    </article>
+
+    <article class="pr-card" id="clean-chart">
+      <h2>Clean prompts each week</h2>
+      <p class="pr-note">Share of prompts that needed nothing more. Hollow points and dashed lines as on the score.</p>
+      <div class="pr-chart" data-draw="week-chart" data-source="weeks reviews" data-metric="clean_share" data-format="pct"></div>
+    </article>
+
+    <article class="pr-card" id="round-trips">
+      <h2>What cost a round trip</h2>
+      <p class="pr-note">Share of prompts each complete week, all on one scale. The figure is the last <span data-draw="window">—</span> complete weeks.</p>
+      <div class="pr-minis">
+        <div class="pr-mini">
+          <h3>Early questions</h3>
+          <p class="pr-mini-value" data-draw="value" data-source="recent" data-row="0" data-field="clarify_rate" data-format="pct">—</p>
+          <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="clarify_rate" data-format="pct" data-shared="clarify_rate interrupt_rate correction_rate handback_rate"></div>
+        </div>
+        <div class="pr-mini">
+          <h3>Interrupts</h3>
+          <p class="pr-mini-value" data-draw="value" data-source="recent" data-row="0" data-field="interrupt_rate" data-format="pct">—</p>
+          <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="interrupt_rate" data-format="pct" data-shared="clarify_rate interrupt_rate correction_rate handback_rate"></div>
+        </div>
+        <div class="pr-mini">
+          <h3>Corrections</h3>
+          <p class="pr-mini-value" data-draw="value" data-source="recent" data-row="0" data-field="correction_rate" data-format="pct">—</p>
+          <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="correction_rate" data-format="pct" data-shared="clarify_rate interrupt_rate correction_rate handback_rate"></div>
+        </div>
+        <div class="pr-mini">
+          <h3>Stopped on a question</h3>
+          <p class="pr-mini-value" data-draw="value" data-source="recent" data-row="0" data-field="handback_rate" data-format="pct">—</p>
+          <div class="pr-spark" data-draw="spark" data-source="weeks" data-metric="handback_rate" data-format="pct" data-shared="clarify_rate interrupt_rate correction_rate handback_rate"></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="pr-card" id="cold-warm">
+      <h2>First prompts and follow-ups</h2>
+      <p class="pr-note">Mean score of the prompt that opens a session, and of the prompts after it, each complete week.</p>
+      <div class="pr-chart is-short" data-draw="cold-warm" data-source="weeks"></div>
+    </article>
+  </section>
+
+  <section class="pr-card" id="better">
+    <h2>Doing better since tracking started</h2>
+    <span data-draw="better-state" data-source="since_start closest"></span>
+    <p class="pr-note" data-when="window" hidden>Compares the first complete weeks tracked (<b data-draw="value" data-source="since_start" data-row="0" data-field="then_weeks" data-format="int">—</b> from the week of <b data-draw="value" data-source="since_start" data-row="0" data-field="then_first" data-format="day">—</b>) with the latest (<b data-draw="value" data-source="since_start" data-row="0" data-field="now_weeks" data-format="int">—</b> from the week of <b data-draw="value" data-source="since_start" data-row="0" data-field="now_first" data-format="day">—</b>), as of the review of <b data-draw="value" data-source="since_start" data-row="0" data-field="review" data-format="day">—</b>. A number counts as better only when its move clears <b data-draw="clear">—</b> standard errors, so a good week or two is not read as progress.</p>
+    <p class="pr-say" data-when="some" hidden>Measurably better on these numbers:</p>
+    <div class="pr-tablebox" data-when="some" hidden>
+      <table class="pr-table" data-source="since_start" data-row-key="metric">
+        <thead><tr>
+          <th data-field="label">Number</th>
+          <th data-field="then" class="num">First weeks</th>
+          <th data-field="now" class="num">Latest weeks</th>
+          <th data-field="z" class="num">Standard errors</th>
+        </tr></thead>
+        <tbody data-draw="better-rows"></tbody>
+      </table>
+    </div>
+    <p class="pr-say" data-when="none" hidden>Nothing is measurably better yet.</p>
+    <p class="pr-say" data-when="closest" hidden>The largest move is <b data-draw="value" data-source="closest" data-row="0" data-field="name" data-format="text">—</b>, from <b data-draw="value" data-source="closest" data-row="0" data-field="then" data-format="metric">—</b> to <b data-draw="value" data-source="closest" data-row="0" data-field="now" data-format="metric">—</b>: <b data-draw="value" data-source="closest" data-row="0" data-field="z" data-format="se">—</b> standard errors, short of the <b data-draw="clear">—</b> it takes to count.</p>
+    <p class="pr-say" data-when="worse" hidden>Measurably worse: <b data-draw="worse-list" data-source="since_start">—</b>.</p>
+    <p class="pr-say" data-when="soon" hidden>Too soon to tell: this needs at least two complete weeks of tracking.</p>
+  </section>
+
+  <section class="pr-card" id="suggestions">
+    <h2>Next suggestions</h2>
+    <p class="pr-note">From the review of <b data-draw="value" data-source="suggestions" data-row="0" data-field="date" data-format="day">—</b>: one per habit that cost round trips in the <b data-draw="value" data-source="suggestions" data-row="0" data-field="days" data-format="int">—</b> days before it, the costliest first. The first is the one change to make this week; the number it is tracked by should fall once it lands.</p>
+    <div class="pr-tablebox">
+      <table class="pr-table" data-source="suggestions" data-row-key="rank">
+        <thead><tr>
+          <th data-field="when">When</th>
+          <th data-field="text">Suggestion</th>
+          <th data-field="fixes" class="pr-hide-narrow">Fixes</th>
+          <th data-field="cost">Cost</th>
+          <th data-field="tracked" class="pr-hide-narrow">Tracked by</th>
+        </tr></thead>
+        <tbody data-draw="suggestion-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="pr-card" id="changes">
+    <h2>Changes committed to</h2>
+    <p class="pr-note">The one change each review asked for and the number that tracks it, over the <span data-draw="window">—</span> complete weeks before the review and the complete weeks since. A verdict needs a move past <b data-draw="clear">—</b> standard errors.</p>
+    <div class="pr-tablebox">
+      <table class="pr-table" data-source="commitments" data-row-key="date">
+        <thead><tr>
+          <th data-field="date">Review</th>
+          <th data-field="change">Change</th>
+          <th data-field="tracked" class="pr-hide-narrow">Tracked by</th>
+          <th data-field="then" class="num">Before</th>
+          <th data-field="now" class="num">Since</th>
+          <th data-field="weeks" class="num pr-hide-narrow">Weeks since</th>
+          <th data-field="verdict">Verdict</th>
+        </tr></thead>
+        <tbody data-draw="changes"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="pr-card" id="weeks">
+    <h2>Every week</h2>
+    <p class="pr-note">Newest first. A partial week is one the transcripts only partly cover: the current week, or one Claude Code has started deleting.</p>
+    <div class="pr-tablebox">
+      <table class="pr-table" data-source="weeks" data-row-key="week">
+        <thead><tr>
+          <th data-field="week">Week of</th>
+          <th data-field="prompts" class="num">Prompts</th>
+          <th data-field="score" class="num">Score</th>
+          <th data-field="clean_share" class="num">Clean</th>
+          <th data-field="friction_rate" class="num">Friction</th>
+          <th data-field="go_ahead_rate" class="num">Bare go-aheads</th>
+          <th data-field="median_chars" class="num pr-hide-narrow">Median length</th>
+          <th data-field="complete" class="pr-hide-narrow">Coverage</th>
+        </tr></thead>
+        <tbody data-draw="weeks-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="pr-foot">Built by the prompt-review skill from Claude Code transcripts, read on the author's machine. It holds weekly numbers and each review's change and suggestions, never the text of a prompt. Claude Code deletes old transcripts (after 30 days by default), so the dashboard keeps every week it has seen, and each review adds the weeks since the last one.</p>
+</div>
+
+<script>
+  // The 4 in these calcs is RECENT below and in scripts/timeline.py; keep them in step.
+  dash.calc('recent', {
+    title: 'Last four complete weeks',
+    description: 'Each figure over the last four complete weeks: the score weighted by steps, every rate by prompts.',
+    inputs: ['weeks'],
+    fn: (weeks) => {
+      const now = weeks.filter((w) => w.complete === true || w.complete === 'true').slice(-4);
+      const avg = (key, by) => {
+        const rows = now.filter((w) => w[key] !== null && w[key] !== '');
+        const total = rows.reduce((s, w) => s + Number(w[by]), 0);
+        return total ? rows.reduce((s, w) => s + Number(w[key]) * Number(w[by]), 0) / total : null;
+      };
+      const row = { weeks: now.length, score: avg('score', 'steps') };
+      for (const key of ['clean_share', 'friction_rate', 'go_ahead_rate', 'clarify_rate', 'interrupt_rate', 'correction_rate', 'handback_rate']) {
+        row[key] = avg(key, 'prompts');
+      }
+      row.prompts_per_week = now.length ? now.reduce((s, w) => s + Number(w.prompts), 0) / now.length : null;
+      return [row];
+    },
+  });
+
+  dash.calc('tracking', {
+    title: 'Tracking so far',
+    description: 'The first complete week tracked, how many complete weeks and prompts there are, and the date of the last review.',
+    inputs: ['weeks', 'reviews'],
+    fn: (weeks, reviews) => {
+      const done = weeks.filter((w) => w.complete === true || w.complete === 'true');
+      if (!done.length) return [];
+      const dates = reviews.map((r) => String(r.date).slice(0, 10)).sort();
+      return [{
+        since: String(done[0].week).slice(0, 10),
+        complete_weeks: done.length,
+        prompts: weeks.reduce((s, w) => s + Number(w.prompts), 0),
+        last_review: dates.length ? dates[dates.length - 1] : null,
+      }];
+    },
+  });
+
+  dash.calc('since_start', {
+    title: 'Since tracking started',
+    description: 'From the latest review: each tracked number over the first complete weeks tracked and over the latest ones, the move in standard errors, and its verdict.',
+    inputs: ['reviews'],
+    fn: (reviews) => {
+      const labels = {
+        score: ['Score', 'the score'], clean_share: ['Clean prompts', 'clean prompts'], friction_rate: ['Friction', 'friction'],
+        clarify_rate: ['Early questions', 'early questions'], interrupt_rate: ['Interrupts', 'interrupts'],
+        correction_rate: ['Corrections', 'corrections'], handback_rate: ['Stopped on a question', 'stops on a question'],
+        go_ahead_rate: ['Bare go-aheads', 'bare go-aheads'],
+      };
+      const parsed = (v) => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch (e) { return null; } };
+      const latest = [...reviews].sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+      const p = latest ? parsed(latest.progress) : null;
+      if (!p || !Array.isArray(p.rows)) return [];
+      return p.rows.map((r) => ({
+        metric: r.metric, label: (labels[r.metric] || [r.metric])[0], name: (labels[r.metric] || [r.metric, r.metric])[1],
+        then: r.then, now: r.now, z: r.z, verdict: r.verdict, review: String(latest.date).slice(0, 10),
+        then_first: p.then.first, then_weeks: p.then.weeks, now_first: p.now.first, now_weeks: p.now.weeks,
+      }));
+    },
+  });
+
+  dash.calc('closest', {
+    title: 'Largest move short of the bar',
+    description: 'The tracked number that moved furthest the right way since tracking started without clearing the bar.',
+    inputs: ['since_start'],
+    fn: (sinceStart) => {
+      const moving = sinceStart.filter((r) => r.verdict === 'within noise' && Number(r.z) > 0);
+      moving.sort((a, b) => Number(b.z) - Number(a.z));
+      return moving.slice(0, 1);
+    },
+  });
+
+  dash.calc('suggestions', {
+    title: 'Next suggestions',
+    description: 'The latest review’s suggestions, costliest first: the habit to change, the leak it fixes, what it cost, and the weekly number that tracks it.',
+    inputs: ['reviews'],
+    fn: (reviews) => {
+      const labels = {
+        score: 'Score', clean_share: 'Clean prompts', friction_rate: 'Friction',
+        clarify_rate: 'Early questions', interrupt_rate: 'Interrupts', correction_rate: 'Corrections',
+        handback_rate: 'Stopped on a question', go_ahead_rate: 'Bare go-aheads',
+      };
+      const parsed = (v) => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch (e) { return null; } };
+      const latest = [...reviews].sort((a, b) => (a.date < b.date ? -1 : 1)).pop();
+      const list = latest ? parsed(latest.suggestions) : null;
+      if (!Array.isArray(list)) return [];
+      return list.map((s, i) => ({
+        rank: i + 1, when: i === 0 ? 'This week' : 'Next', text: s.text, fixes: s.fixes, cost: s.cost || null,
+        tracked: s.metric ? labels[s.metric] || s.metric : 'Judged, not tracked',
+        date: String(latest.date).slice(0, 10), days: latest.days,
+      }));
+    },
+  });
+
+  dash.calc('commitments', {
+    title: 'Changes and whether they took',
+    description: 'Each review’s one change with its tracked number over the four complete weeks before the review and the complete weeks since, and the verdict on the move.',
+    inputs: ['reviews'],
+    fn: (reviews) => {
+      const labels = {
+        score: 'Score', clean_share: 'Clean prompts', friction_rate: 'Friction',
+        clarify_rate: 'Early questions', interrupt_rate: 'Interrupts', correction_rate: 'Corrections',
+        handback_rate: 'Stopped on a question', go_ahead_rate: 'Bare go-aheads',
+      };
+      const parsed = (v) => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch (e) { return null; } };
+      return reviews.map((r) => {
+        const f = parsed(r.followup) || {};
+        return {
+          date: String(r.date).slice(0, 10), change: r.change, metric: r.metric, tracked: labels[r.metric] || r.metric,
+          then: f.then ?? null, now: f.now ?? null, weeks: f.weeks ?? 0, verdict: f.verdict || null,
+        };
+      }).sort((a, b) => (a.date < b.date ? 1 : -1));
+    },
+  });
+
+  const RECENT = 4;
+  const CLEAR = 2.5;   // standard errors a move must clear to count; CLEAR in scripts/timeline.py
+  const WEEK = 7 * 864e5;
+  const day = d3.utcFormat('%b %-d');
+  const parse = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00Z`);
+  const FORMAT = {
+    score: (v) => d3.format('.2f')(v),
+    pct: (v) => d3.format('.1%')(v),
+    int: (v) => d3.format(',')(Math.round(v)),
+    se: (v) => d3.format('.1f')(v),
+    day: (v) => day(parse(v)),
+    text: (v) => String(v),
+  };
+  const RAW = ['day', 'text'];
+  const formatOf = (metric) => (metric === 'score' ? FORMAT.score : FORMAT.pct);
+  const VERDICT = { better: 'Better', worse: 'Worse', 'within noise': 'Within noise', 'too soon': 'Too soon' };
+  const num = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  const isComplete = (w) => w.complete === true || w.complete === 'true';
+  const middle = (w) => new Date(parse(w.week).getTime() + WEEK / 2);
+  let gradients = 0;
+
+  function cellsOf(tr, cells) {
+    cells.forEach(([text, cls]) => {
+      const td = tr.insertCell();
+      td.textContent = text;
+      if (cls) td.className = cls;
+    });
+  }
+
+  function frame(el, height) {
+    el.replaceChildren();
+    const width = el.clientWidth;
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', height)
+      .attr('viewBox', `0 0 ${width} ${height}`);
+    return { svg, width };
+  }
+
+  function textWidth(svg, labels, cls) {
+    const probe = svg.append('text').attr('class', cls);
+    const widest = d3.max(labels, (s) => probe.text(s).node().getComputedTextLength()) || 0;
+    probe.remove();
+    return widest;
+  }
+
+  // A popover tied to the nearest point along x; `lines(p)` gives [className, text] pairs.
+  function tooltip(el, svg, points, xOf, lines, hover) {
+    const box = document.createElement('div');
+    box.className = 'pr-tip';
+    box.style.display = 'none';
+    el.append(box);
+    svg.on('pointermove', (event) => {
+      const [mx] = d3.pointer(event);
+      const p = d3.least(points, (q) => Math.abs(xOf(q) - mx));
+      if (!p) return;
+      box.replaceChildren(...lines(p).map(([cls, text]) => {
+        const line = document.createElement('div');
+        line.className = cls;
+        line.textContent = text;
+        return line;
+      }));
+      box.style.display = '';
+      const px = xOf(p);
+      const left = px + 12 + box.offsetWidth > el.clientWidth ? px - 12 - box.offsetWidth : px + 12;
+      box.style.left = `${Math.max(0, left)}px`;
+      box.style.top = '0px';
+      hover(p);
+    }).on('pointerleave', () => {
+      box.style.display = 'none';
+      hover(null);
+    });
+  }
+
+  function gridAndAxes(svg, x, y, width, height, left, bottom, yFormat) {
+    const g = svg.append('g');
+    g.selectAll('line.grid').data(y.ticks(4)).join('line')
+      .attr('x1', left).attr('x2', width).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
+      .style('stroke', 'var(--cds-chart-grid)').style('stroke-width', 1);
+    g.selectAll('text.y').data(y.ticks(4)).join('text').attr('class', 'pr-tick')
+      .attr('x', left - 8).attr('y', (t) => y(t)).attr('dy', '0.32em').attr('text-anchor', 'end')
+      .text(yFormat);
+    const ticks = x.ticks(Math.max(2, Math.floor((width - left) / 90)));
+    g.selectAll('text.x').data(ticks).join('text').attr('class', 'pr-tick')
+      .attr('x', (t) => x(t)).attr('y', height - bottom + 18).attr('text-anchor', 'middle')
+      .text((t) => day(t));
+    g.append('line').attr('x1', left).attr('x2', width).attr('y1', height - bottom).attr('y2', height - bottom)
+      .style('stroke', 'var(--cds-chart-axis)').style('stroke-width', 1);
+  }
+
+  dash.draw('window', (el) => { el.textContent = String(RECENT); });
+  dash.draw('clear', (el) => { el.textContent = String(CLEAR); });
+
+  // One value from one row; `metric` formats it as the row's own metric reads.
+  dash.draw('value', (el) => {
+    const g = dash.data(el.dataset.source);
+    const row = g.status === 'ok' ? g.data[Number(el.dataset.row || 0)] : null;
+    const raw = row ? row[el.dataset.field] : null;
+    const f = el.dataset.format;
+    const v = RAW.includes(f) ? (raw === null || raw === undefined || raw === '' ? null : raw) : num(raw);
+    el.textContent = v === null ? '—' : f === 'metric' ? formatOf(row.metric)(v) : FORMAT[f](v);
+  });
+
+  // Shows the sentences of "Doing better" that the latest review's numbers call for.
+  dash.draw('better-state', () => {
+    const s = dash.data('since_start');
+    const c = dash.data('closest');
+    const on = new Set();
+    if (s.status === 'ok') {
+      if (!s.data.length) on.add('soon');
+      else {
+        on.add('window');
+        on.add(s.data.some((r) => r.verdict === 'better') ? 'some' : 'none');
+        if (s.data.some((r) => r.verdict === 'worse')) on.add('worse');
+        if (on.has('none') && c.status === 'ok' && c.data.length) on.add('closest');
+      }
+    }
+    document.querySelectorAll('[data-when]').forEach((el) => { el.hidden = !on.has(el.dataset.when); });
+  });
+
+  dash.draw('better-rows', (tbody) => {
+    tbody.replaceChildren();
+    const g = dash.data('since_start');
+    if (g.status !== 'ok') return;
+    g.data.filter((r) => r.verdict === 'better').forEach((r) => {
+      const tr = tbody.insertRow();
+      tr.dataset.key = r.metric;
+      const f = formatOf(r.metric);
+      cellsOf(tr, [[r.label, ''], [f(num(r.then)), 'num'], [f(num(r.now)), 'num'], [FORMAT.se(num(r.z)), 'num is-good']]);
+    });
+  });
+
+  dash.draw('worse-list', (el) => {
+    const g = dash.data('since_start');
+    const rows = g.status === 'ok' ? g.data.filter((r) => r.verdict === 'worse') : [];
+    el.textContent = rows.length
+      ? rows.map((r) => `${r.name} ${formatOf(r.metric)(num(r.then))} → ${formatOf(r.metric)(num(r.now))}`).join('; ')
+      : '—';
+  });
+
+  dash.draw('suggestion-rows', (tbody) => {
+    tbody.replaceChildren();
+    const g = dash.data('suggestions');
+    if (g.status !== 'ok') return;
+    g.data.forEach((r) => {
+      const tr = tbody.insertRow();
+      tr.dataset.key = String(r.rank);
+      if (Number(r.rank) === 1) tr.className = 'is-now';
+      cellsOf(tr, [[r.when, 'pr-when'], [r.text, 'pr-change'], [r.fixes, 'pr-hide-narrow'], [r.cost || '—', ''], [r.tracked, 'pr-hide-narrow']]);
+    });
+  });
+
+  dash.draw('spark', (el) => {
+    el.replaceChildren();
+    const g = dash.data('weeks');
+    if (g.status !== 'ok' || !el.clientWidth) return;
+    const key = el.dataset.metric;
+    const done = g.data.filter(isComplete);
+    const pts = done.map((w) => ({ w, d: middle(w), v: num(w[key]) })).filter((p) => p.v !== null);
+    if (pts.length < 2) return;
+    const shared = (el.dataset.shared || '').split(' ').filter(Boolean);
+    const height = el.clientHeight;
+    const { svg, width } = frame(el, height);
+    const values = shared.length ? done.flatMap((w) => shared.map((k) => num(w[k]))).filter((v) => v !== null) : pts.map((p) => p.v);
+    const rate = key.endsWith('_rate') || key === 'prompts';
+    const lo = rate ? 0 : d3.min(values);
+    const hi = d3.max(values);
+    const pad = hi === lo ? 1 : 0;
+    const x = d3.scaleUtc(d3.extent(pts, (p) => p.d), [4, width - 4]);
+    const y = d3.scaleLinear([lo - (rate ? 0 : pad), hi + pad], [height - 3, 5]);
+    const id = `pr-grad-${++gradients}`;
+    const grad = svg.append('defs').append('linearGradient').attr('id', id).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+    [[0, 0.26], [0.25, 0.16], [0.5, 0.08], [0.75, 0.03], [1, 0]].forEach(([o, a]) => {
+      grad.append('stop').attr('offset', o).attr('stop-opacity', a).style('stop-color', dash.colors[0]);
+    });
+    svg.append('path').datum(pts).attr('d', d3.area().x((p) => x(p.d)).y0(height - 3).y1((p) => y(p.v))).style('fill', `url(#${id})`);
+    svg.append('path').datum(pts).attr('d', d3.line().x((p) => x(p.d)).y((p) => y(p.v)))
+      .style('fill', 'none').style('stroke', dash.colors[0]).style('stroke-width', 2)
+      .style('stroke-linecap', 'round').style('stroke-linejoin', 'round');
+    const last = pts[pts.length - 1];
+    svg.append('circle').attr('cx', x(last.d)).attr('cy', y(last.v)).attr('r', 3).style('fill', dash.colors[0]);
+    const dot = svg.append('circle').attr('r', 3.5).style('fill', dash.colors[0]).style('display', 'none');
+    tooltip(el, svg, pts, (p) => x(p.d),
+      (p) => [['pr-tip-head', `Week of ${day(parse(p.w.week))}`], ['', FORMAT[el.dataset.format](p.v)]],
+      (p) => (p ? dot.style('display', null).attr('cx', x(p.d)).attr('cy', y(p.v)) : dot.style('display', 'none')));
+  });
+
+  // One metric per week, with each review marked: the score (out of 10) or the clean share.
+  dash.draw('week-chart', (el) => {
+    const g = dash.data('weeks');
+    const rv = dash.data('reviews');
+    el.replaceChildren();
+    if (g.status !== 'ok' || !el.clientWidth) return;
+    const key = el.dataset.metric;
+    const share = el.dataset.format === 'pct';
+    const pts = g.data.map((w) => ({ w, d: middle(w), v: num(w[key]), full: isComplete(w) })).filter((p) => p.v !== null);
+    if (!pts.length) return;
+    const reviews = rv.status === 'ok' ? rv.data.map((r) => ({ r, d: parse(r.date) })) : [];
+    const height = 260;
+    const bottom = 28;
+    const top = 22;
+    const { svg, width } = frame(el, height);
+    // The axis runs to the best possible value and starts low enough that a good week isn't a cliff.
+    const best = share ? 1 : 10;
+    const step = share ? 0.1 : 0.5;
+    const lo = Math.floor(Math.min(share ? 0.6 : 8, d3.min(pts, (p) => p.v)) / step + 1e-9) * step;
+    const y = d3.scaleLinear([lo, best], [height - bottom, top]);
+    const tick = share ? d3.format('.0%') : d3.format('.1f');
+    const left = textWidth(svg, y.ticks(4).map(tick), 'pr-tick') + 12;
+    const start = parse(pts[0].w.week);
+    const end = new Date(Math.max(parse(pts[pts.length - 1].w.week).getTime() + WEEK, ...reviews.map((r) => r.d.getTime() + 864e5)));
+    const x = d3.scaleUtc([start, end], [left + 6, width - 8]);
+    gridAndAxes(svg, x, y, width, height, left, bottom, tick);
+
+    let lastLabel = -Infinity;
+    reviews.forEach(({ d }) => {
+      const rx = x(d);
+      svg.append('line').attr('x1', rx).attr('x2', rx).attr('y1', top - 6).attr('y2', height - bottom)
+        .style('stroke', 'var(--cds-chart-reference)').style('stroke-width', 1).style('stroke-dasharray', '4 3');
+      if (rx - lastLabel > 56) {
+        svg.append('text').attr('class', 'pr-tick').attr('x', Math.min(Math.max(rx, left + 24), width - 24))
+          .attr('y', top - 10).attr('text-anchor', 'middle').text(`Review ${day(d)}`);
+        lastLabel = rx;
+      }
+    });
+
+    const line = d3.line().x((p) => x(p.d)).y((p) => y(p.v));
+    svg.append('path').datum(pts).attr('d', line)
+      .style('fill', 'none').style('stroke', 'var(--cds-chart-muted)').style('stroke-width', 1.5).style('stroke-dasharray', '3 3');
+    svg.append('path').datum(pts).attr('d', line.defined((p) => p.full))
+      .style('fill', 'none').style('stroke', dash.colors[0]).style('stroke-width', 2)
+      .style('stroke-linecap', 'round').style('stroke-linejoin', 'round');
+    svg.selectAll('circle.pt').data(pts).join('circle').attr('cx', (p) => x(p.d)).attr('cy', (p) => y(p.v)).attr('r', 3.5)
+      .style('fill', (p) => (p.full ? dash.colors[0] : 'var(--color-panel)'))
+      .style('stroke', dash.colors[0]).style('stroke-width', 1.5);
+    const dot = svg.append('circle').attr('r', 5.5).style('fill', 'none').style('stroke', dash.colors[0]).style('stroke-width', 2).style('display', 'none');
+
+    tooltip(el, svg, pts, (p) => x(p.d), (p) => {
+      const weekStart = parse(p.w.week).getTime();
+      const lines = [
+        ['pr-tip-head', `Week of ${day(parse(p.w.week))}${p.full ? '' : ' · partial'}`],
+        ['', share ? `${d3.format('.1%')(p.v)} clean` : `Score ${d3.format('.2f')(p.v)}`],
+        ['', `${d3.format(',')(num(p.w.prompts))} prompts`],
+      ];
+      reviews.filter((r) => r.d.getTime() >= weekStart && r.d.getTime() < weekStart + WEEK)
+        .forEach(({ r }) => lines.push(['pr-tip-head', `Review ${day(parse(r.date))}: ${r.change}`]));
+      return lines;
+    }, (p) => (p ? dot.style('display', null).attr('cx', x(p.d)).attr('cy', y(p.v)) : dot.style('display', 'none')));
+  });
+
+  dash.draw('cold-warm', (el) => {
+    const g = dash.data('weeks');
+    el.replaceChildren();
+    if (g.status !== 'ok' || !el.clientWidth) return;
+    const done = g.data.filter(isComplete);
+    const series = [
+      { key: 'cold_score', name: 'First prompts', color: dash.colors[0] },
+      { key: 'warm_score', name: 'Follow-ups', color: dash.colors[1] },
+    ].map((s) => ({ ...s, pts: done.map((w) => ({ w, d: middle(w), v: num(w[s.key]) })).filter((p) => p.v !== null) }));
+    if (series.every((s) => s.pts.length < 2)) return;
+    const height = 220;
+    const bottom = 28;
+    const { svg, width } = frame(el, height);
+    const all = series.flatMap((s) => s.pts.map((p) => p.v));
+    const lo = Math.floor(Math.min(9, d3.min(all)) * 2) / 2;
+    const y = d3.scaleLinear([lo, 10], [height - bottom, 14]);
+    const left = textWidth(svg, y.ticks(4).map((t) => d3.format('.1f')(t)), 'pr-tick') + 12;
+    const labels = series.filter((s) => s.pts.length).map((s) => {
+      const last = s.pts[s.pts.length - 1];
+      return { s, last, text: `${s.name} ${d3.format('.2f')(last.v)}` };
+    });
+    const right = textWidth(svg, labels.map((l) => l.text), 'pr-endlabel') + 14;
+    const x = d3.scaleUtc(d3.extent(done, middle), [left + 6, width - right]);
+    gridAndAxes(svg, x, y, width - right + 8, height, left, bottom, (t) => d3.format('.1f')(t));
+    series.forEach((s) => {
+      svg.append('path').datum(s.pts).attr('d', d3.line().x((p) => x(p.d)).y((p) => y(p.v)))
+        .style('fill', 'none').style('stroke', s.color).style('stroke-width', 2)
+        .style('stroke-linecap', 'round').style('stroke-linejoin', 'round');
+    });
+    // End labels: keep them at least a line apart.
+    labels.sort((a, b) => y(a.last.v) - y(b.last.v));
+    let prev = -Infinity;
+    labels.forEach((l) => {
+      const ly = Math.max(y(l.last.v), prev + 14);
+      prev = ly;
+      svg.append('text').attr('class', 'pr-endlabel').attr('x', x(l.last.d) + 8).attr('y', ly).attr('dy', '0.32em')
+        .style('fill', l.s.color).text(l.text);
+    });
+    const dots = series.map((s) => svg.append('circle').attr('r', 3.5).style('fill', s.color).style('display', 'none'));
+    const weeks = done.map((w) => ({ w, d: middle(w) }));
+    tooltip(el, svg, weeks, (p) => x(p.d), (p) => [
+      ['pr-tip-head', `Week of ${day(parse(p.w.week))}`],
+      ...series.map((s) => ['', `${s.name} ${num(p.w[s.key]) === null ? '—' : d3.format('.2f')(num(p.w[s.key]))}`]),
+    ], (p) => series.forEach((s, i) => {
+      const v = p ? num(p.w[s.key]) : null;
+      dots[i].style('display', v === null ? 'none' : null);
+      if (v !== null) dots[i].attr('cx', x(p.d)).attr('cy', y(v));
+    }));
+  });
+
+  dash.draw('changes', (tbody) => {
+    tbody.replaceChildren();
+    const g = dash.data('commitments');
+    if (g.status !== 'ok') return;
+    g.data.forEach((r) => {
+      const tr = tbody.insertRow();
+      tr.dataset.key = r.date;
+      const f = formatOf(r.metric);
+      cellsOf(tr, [
+        [day(parse(r.date)), ''],
+        [r.change, 'pr-change'],
+        [r.tracked, 'pr-hide-narrow'],
+        [num(r.then) === null ? '—' : f(num(r.then)), 'num'],
+        [num(r.now) === null ? '—' : f(num(r.now)), 'num'],
+        [String(num(r.weeks) ?? 0), 'num pr-hide-narrow'],
+        [VERDICT[r.verdict] || '—', r.verdict === 'better' ? 'is-good' : r.verdict === 'worse' ? 'is-bad' : ''],
+      ]);
+    });
+  });
+
+  dash.draw('weeks-rows', (tbody) => {
+    tbody.replaceChildren();
+    const g = dash.data('weeks');
+    if (g.status !== 'ok') return;
+    [...g.data].reverse().forEach((w) => {
+      const tr = tbody.insertRow();
+      tr.dataset.key = String(w.week).slice(0, 10);
+      if (!isComplete(w)) tr.className = 'is-partial';
+      const show = (v, f) => (num(v) === null ? '—' : f(num(v)));
+      [
+        [day(parse(w.week)), ''],
+        [show(w.prompts, FORMAT.int), 'num'],
+        [show(w.score, FORMAT.score), 'num'],
+        [show(w.clean_share, FORMAT.pct), 'num'],
+        [show(w.friction_rate, FORMAT.pct), 'num'],
+        [show(w.go_ahead_rate, FORMAT.pct), 'num'],
+        [show(w.median_chars, FORMAT.int), 'num pr-hide-narrow'],
+        [isComplete(w) ? 'Full' : 'Partial', 'pr-hide-narrow'],
+      ].forEach(([text, cls]) => {
+        const td = tr.insertCell();
+        td.textContent = text;
+        if (cls) td.className = cls;
+      });
+    });
+  });
+</script>
