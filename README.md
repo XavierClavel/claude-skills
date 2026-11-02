@@ -52,11 +52,12 @@ very large move.
 **Weekly mode.** `/prompt-review --weekly` reviews the last complete week, Monday to Sunday UTC,
 without asking anything, so it can run on a schedule. It writes the report, which quotes your
 prompts, to `~/.claude/prompt-review/reports/<week>.md` and updates the dashboard as a full
-review does. Schedule it on the machine that holds your transcripts, with cron, launchd or
-anything else that can run `claude -p "/prompt-review --weekly"`. A cloud scheduler can't read
-them. Allow the run its Bash, Write and artifact tool calls. If the artifact calls are refused,
-it still saves the weeks locally and the dashboard catches up on the next run that can write
-it. Running it weekly also captures every week whole before its transcripts are deleted.
+review does. Schedule it on the machine that holds your transcripts: a cloud scheduler can't
+read them. Start it as an interactive session if your scheduler can, since a headless
+`claude -p` session may have no artifact tools and then only updates the local history until a
+run that has them. Allow `Skill`, `ToolSearch`, `Read`, `Write`, `Bash(python3:*)`,
+`Bash(mkdir:*)`, `Bash(date:*)`, `Artifact` and `ArtifactData`, so that no step waits on a
+permission prompt. Running it weekly also captures every week whole before its transcripts are deleted.
 
 The score is `10 × 0.5^(waste/12)`, where waste counts only work that had to be redone and
 each time a prompt made you come back costs a halving: one round trip is a 5, two are a 2.5.
