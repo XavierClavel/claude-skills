@@ -402,8 +402,12 @@ dashboard row, and runs without anyone reading along, so it can be scheduled.
 
 **Where to schedule it.** On the machine that holds the transcripts: a cloud scheduler can't read
 `~/.claude/projects`. Any day takes the last complete week, but Monday reviews it while all of it
-is on disk and puts the report at the start of the next one. A scheduled `claude -p` run is not a
-typed prompt, so it never grades itself.
+is on disk and puts the report at the start of the next one. Prefer an interactive session when
+the scheduler can start one: a headless `claude -p` session may have no Artifact tools, and then
+only the local copy moves on until a run that has them. A run whose prompt is passed on the
+command line is not a typed prompt, so it never grades itself. Allow it `Skill`, `ToolSearch`,
+`Read`, `Write`, `Bash(python3:*)`, `Bash(mkdir:*)`, `Bash(date:*)`, `Artifact` and
+`ArtifactData`, so that no step waits on a permission prompt.
 
 **Run unattended.**
 
@@ -413,9 +417,15 @@ typed prompt, so it never grades itself.
   dashboard can't be written, run the local fallback ("Without the Artifact tools") and say
   which step was refused. A refused delete in step 8 only leaves an unused file on the
   dashboard.
-- Write the report to `~/.claude/prompt-review/reports/<week>.md`, `<week>` being the Monday the
-  week started. It quotes prompts, so it stays on this machine: the dashboard gets the numbers
-  and suggestions as in a full review. A second run for the same week replaces the file.
+- Put `<run>` in the scratchpad, and call every script by its full path,
+  `python3 <skill>/scripts/extract.py …`, never after a `cd`. An unattended session may only
+  change directory inside its working folder, and Claude Code asks before its own tools write
+  anywhere under `~/.claude`: either one stops the run on a question nobody answers.
+- Write the report to `<run>/report.md`, and add `--report <run>/report.md` to step 5's
+  `timeline.py`, or to the local fallback's. It saves the report as
+  `~/.claude/prompt-review/reports/<week>.md`, `<week>` being the Monday the week started. The
+  report quotes prompts, so it stays on this machine: the dashboard gets the numbers and
+  suggestions as in a full review. A second run for the same week replaces the file.
 - End with three lines, for whatever runs the schedule to pass on: the week's score and clean
   share against the weeks before, the one change and where it stands, and the report's path
   and the dashboard link.

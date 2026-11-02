@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -274,9 +275,13 @@ def main():
                     help="the review covers the last complete week, Monday to Sunday UTC, in place of --days")
     ap.add_argument("--rotate", action="store_true",
                     help="replace the last review's change even while it is on hold; only when the user asks")
+    ap.add_argument("--report", help="the review's report, saved as <history>/reports/<week>.md: Claude Code "
+                    "asks before its own tools write under ~/.claude, and an unattended run can't answer")
     ap.add_argument("--history", default=HISTORY,
                     help=f"the local copy of weeks and reviews, read and rewritten (default {HISTORY})")
     args = ap.parse_args()
+    if args.report and not os.path.isfile(args.report):
+        sys.exit(f"no report at {args.report}")
 
     local_weeks = os.path.join(args.history, "weeks.json")
     local_reviews = os.path.join(args.history, "reviews.json")
@@ -357,6 +362,14 @@ def main():
             with open(os.path.join(folder, name), "w", encoding="utf-8") as fh:
                 json.dump(rows, fh, ensure_ascii=False, indent=1)
 
+    report = None
+    if args.report:
+        # Named for the Monday of the week reviewed, so a second run that week replaces it.
+        day = extract.last_week()[0].date().isoformat() if args.last_week else today
+        report = os.path.join(args.history, "reports", f"{day}.md")
+        os.makedirs(os.path.dirname(report), exist_ok=True)
+        shutil.copyfile(args.report, report)
+
     with open(PAGE, encoding="utf-8") as fh:
         page = fh.read()
     with open(os.path.join(args.out, "page.json"), "w", encoding="utf-8") as fh:
@@ -371,6 +384,8 @@ def main():
     print(f"weeks: {len(weeks)} ({len(complete)} complete); {stored} were stored, "
           f"{only_stored} of them kept as stored because their transcripts are gone or partial")
     print(f"history: also saved to {args.history}")
+    if report:
+        print(f"report: saved to {report}")
     if complete:
         now = {m: recent(weeks, m) for m in ("score", "clean_share", "friction_rate", "go_ahead_rate")}
         print(f"last {min(RECENT, len(complete))} complete weeks: score {show('score', now['score'])}, "
