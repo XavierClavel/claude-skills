@@ -400,6 +400,14 @@ def transcript_horizon():
     return horizon
 
 
+def last_week(now=None):
+    """The last complete week, Monday 00:00 to the next Monday (UTC): the span of one dashboard
+    row, so a weekly review and its row count the same prompts."""
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    monday = datetime(now.year, now.month, now.day, tzinfo=timezone.utc) - timedelta(days=now.weekday())
+    return monday - timedelta(days=7), monday
+
+
 def weekly(records):
     """One row per week (starting Monday, UTC) with the numbers the evolution dashboard plots.
 
@@ -470,9 +478,19 @@ def main():
                     help="one JSON row per week: score, friction and its parts, go-aheads")
     ap.add_argument("--shortcuts", action="store_true",
                     help="prompts that searched heavily before their first edit, to judge by hand")
+    ap.add_argument("--last-week", action="store_true",
+                    help="the last complete week, Monday to Sunday UTC, in place of --days")
     args = ap.parse_args()
 
-    records = load(args.days, args.project, args.max_chars)
+    if args.last_week:
+        start, end = last_week()
+        days = (datetime.now(timezone.utc) - start).days + 1
+        records = [r for r in load(days, args.project, args.max_chars)
+                   if start <= (parse_ts(r["ts"]) or end) < end]
+        span = f"week of {start.date().isoformat()}"
+    else:
+        records = load(args.days, args.project, args.max_chars)
+        span = f"{args.days}d"
     if args.skip_slash:
         records = [r for r in records if not r["slash_command"]]
     records = [r for r in records if r["chars"] >= args.min_chars]
@@ -483,7 +501,7 @@ def main():
             json.dumps(
                 {
                     "prompts": len(records),
-                    "days": args.days,
+                    "window": span,
                     "projects": len({r["project"] for r in records}),
                     "median_chars": sorted(r["chars"] for r in records)[len(records) // 2] if records else 0,
                     "slash_commands": sum(1 for r in records if r["slash_command"]),
@@ -543,7 +561,7 @@ def main():
         mean = round(stat.mean(r["score"] for r in records), 1)
 
         clean = sum(1 for r in records if r["score"] >= 10) / len(records)
-        print(f"PERIOD SCORE  {weighted}/10   (turn-weighted, {args.days}d, n={len(records)})")
+        print(f"PERIOD SCORE  {weighted}/10   (turn-weighted, {span}, n={len(records)})")
         print(f"  clean prompts (needed nothing more from you): {clean:.0%}")
         print(f"  unweighted mean per prompt: {mean}/10")
         print(f"  cold openers (seq 1):       {round(stat.mean([r['score'] for r in records if r['seq'] == 1] or [0]), 1)}/10")
@@ -594,7 +612,7 @@ def main():
             print(f"{label:<20} n={n:<5} friction={sum(map(friction, rs)) / n:>6.1%}"
                   f"  med_steps={int(stat.median([r['outcome']['assistant_steps'] for r in rs])):>4}")
 
-        print(f"TOTAL n={len(records)}  ({args.days}d)\n")
+        print(f"TOTAL n={len(records)}  ({span})\n")
         # A first prompt has no conversation behind it; a later one inherits everything said.
         cold = [r for r in records if r["seq"] == 1]
         warm = [r for r in records if r["seq"] >= 2]

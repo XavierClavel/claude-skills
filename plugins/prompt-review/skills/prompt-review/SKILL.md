@@ -1,6 +1,6 @@
 ---
 name: prompt-review
-description: Grade the user's own recent Claude Code prompts, show rewritten before/after versions of the ones that caused friction, and coach them on what to change — judged by what actually happened after each prompt (clarifying questions, corrections, interrupts, turns-to-done) rather than a generic checklist — then track their prompting week by week on a dashboard. Use when the user asks to review or rate their prompts, wants better prompt versions, asks how they prompt, wants to improve at prompting, asks whether to give more context, asks how their prompting has evolved, or invokes /prompt-review.
+description: Grade the user's own recent Claude Code prompts, show rewritten before/after versions of the ones that caused friction, and coach them on what to change — judged by what actually happened after each prompt (clarifying questions, corrections, interrupts, turns-to-done) rather than a generic checklist — then track their prompting week by week on a dashboard. Use when the user asks to review or rate their prompts, wants better prompt versions, asks how they prompt, wants to improve at prompting, asks whether to give more context, asks how their prompting has evolved, wants a weekly report on their prompting, or invokes /prompt-review (with --weekly for the unattended weekly run).
 ---
 
 # Prompt review
@@ -25,6 +25,7 @@ python3 scripts/extract.py --days 30 --shortcuts --top 10  # 4. searches a promp
 python3 scripts/extract.py --days 14 --limit 50        # full slice, only if surveying
 python3 scripts/extract.py --days 30 --project myrepo  # one repo
 python3 scripts/extract.py --days 60 --timeline        # one JSON row per week
+python3 scripts/extract.py --last-week --score         # the last complete week, Monday to Sunday UTC
 ```
 
 **Run 1, 2, 3 and 4 in that order, every time.** They are cheap and they set up the whole report;
@@ -203,7 +204,8 @@ Keep it short and specific to their actual text. Structure:
 
 1. **Score** — when the dashboard holds an earlier review, open with it in one line: the change
    it asked for, its tracked number before the review and in the complete weeks since, and the
-   verdict, or that no complete week has passed yet (see "The evolution dashboard"). Then the
+   verdict, or that no complete week has passed yet (see "The evolution dashboard"). Say whether
+   the change is held or rotated, and why (see "The one change holds"). Then the
    period score beside the share of clean prompts (those that needed nothing more from the
    user, printed by `--score`), the distribution, and the cold/warm split, with the model's
    limits stated plainly. Then friction rate, median length, prompts reviewed.
@@ -294,6 +296,8 @@ that has the tools.
    It prints the last four complete weeks and, for the last review, its change with its tracked
    number over the four complete weeks before the review and the complete weeks since, and a
    verdict, or `too soon` while no complete week has passed. That is the report's opening line.
+   Then `change: hold` or `change: rotate`, which decides this review's change (see "The one
+   change holds").
 
    It also prints `progress since tracking started`: every tracked number over the first four
    complete weeks the history holds against the last four. Until there are eight, the older half
@@ -304,7 +308,8 @@ that has the tools.
 
 **After the report:**
 
-4. **Record the review** in `<run>/review.json`:
+4. **Record the review** in `<run>/review.json`. On `change: hold`, leave `change` and `metric`
+   out: `timeline.py` carries the held ones over, and refuses a different one.
 
    ~~~json
    {"change": "<the one change, one sentence, as the report put it>",
@@ -367,15 +372,84 @@ that has the tools.
    it, and that anyone they share it with can read its two files. The files hold weekly numbers
    and each review's change, suggestions and verdicts, never their prompts.
 
+**The one change holds** until it is judged. A review's change stays the one change for the
+reviews after it until its number moves past the bar either way, or four complete weeks pass
+without that. At a few hundred prompts a week, one week can only show a very large move: bare
+go-aheads would have to fall from about 6% to under 2%. A new change at every review would also
+leave each one judged on weeks spent on the next. `timeline.py` prints `change: hold` with how
+many of the four weeks have passed, or `change: rotate` with the verdict or the four weeks that
+ended it. While it holds, every review of the change is judged from the day it was first asked
+for, its suggestion stays the first row of the table with this window's cost, and the dashboard
+shows it once. On `rotate`, pick the next change from this review's leaks as usual. Pass
+`--rotate` to `timeline.py` only when the user asks for a new change: a run between two weekly
+ones must not reset the one being tracked.
+
 **Changing the merge or the verdicts.** `scripts/test_timeline.py` pins every way the history
-could be lost or degraded, and when a move counts as better. Run it after touching
-`merge_weeks`, `transcript_horizon`, `progress` or `followup`.
+could be lost or degraded, when a move counts as better, when a change holds, and where a week
+starts. Run it after touching `merge_weeks`, `transcript_horizon`, `progress`, `followup`,
+`standing` or `last_week`.
 
 **Changing the page.** Its source is `assets/dashboard.html`. A run writes it over the stored
 page only when the `prompt-review-page` number in the file is higher than the stored one, so
 bump that number with every change. Edits made by hand on the dashboard survive until then.
 The page follows the Dashboard type's one-writer rule: fixed text sits in the HTML, and
 everything the data decides is a `dash.draw` drawing.
+
+## Weekly mode
+
+`/prompt-review --weekly` reviews the last complete week, Monday to Sunday UTC, the span of one
+dashboard row, and runs without anyone reading along, so it can be scheduled.
+
+**Where to schedule it.** On the machine that holds the transcripts: a cloud scheduler can't read
+`~/.claude/projects`. Any day takes the last complete week, but Monday reviews it while all of it
+is on disk and puts the report at the start of the next one. A scheduled `claude -p` run is not a
+typed prompt, so it never grades itself.
+
+**Run unattended.**
+
+- Never ask a question or wait for an answer. Where a full review would ask, take the default
+  and say which in the report.
+- If an `Artifact` or `ArtifactData` call is refused, keep going on what is left: when the
+  dashboard can't be written, run the local fallback ("Without the Artifact tools") and say
+  which step was refused. A refused delete in step 8 only leaves an unused file on the
+  dashboard.
+- Write the report to `~/.claude/prompt-review/reports/<week>.md`, `<week>` being the Monday the
+  week started. It quotes prompts, so it stays on this machine: the dashboard gets the numbers
+  and suggestions as in a full review. A second run for the same week replaces the file.
+- End with three lines, for whatever runs the schedule to pass on: the week's score and clean
+  share against the weeks before, the one change and where it stands, and the report's path
+  and the dashboard link.
+
+**The data.** Steps 1, 1b, 3 and 4 of "Get the data" with `--last-week` in place of `--days`:
+
+```bash
+python3 scripts/extract.py --last-week --score
+python3 scripts/extract.py --last-week --stats
+python3 scripts/extract.py --last-week --friction-only
+python3 scripts/extract.py --last-week --shortcuts --top 10
+```
+
+Skip `--correlate`: a week is too few prompts to split by length. The cold and warm scores
+from `--score` stand in for it, and the curves belong to a full review. Every `timeline.py` run
+takes `--last-week` too, in place of `--days 30` in step 5. It then prints `last week` against
+the complete weeks before it, each number with its verdict, and records the review over that
+week.
+
+**The report**, shorter than a full one:
+
+1. **The week** — its score and clean share, then every number from the `last week` lines. Most
+   moves of a single week land within noise: say so plainly, and never call the week better or
+   worse on a move that didn't clear the bar.
+2. **The change** — the one change and where it stands: held, with how many of its four weeks
+   have passed and its number so far, or the verdict that rotated it.
+3. **What you're doing better since tracking started** — as in a full report.
+4. **What worked** — two or three prompt shapes from the week that landed, quoted.
+5. **What didn't** — up to three leaks from the week, each with its quoted prompts and its cost.
+   When a leak is also among the last review's suggestions, say so: that is a habit, not a
+   bad week.
+6. **Rewrites** — 3 to 5, from the week's prompts only, in the full format.
+7. **Suggestions** — the table, its first row the held change or, on `rotate`, the new one.
+8. **The dashboard link**, last, in one line.
 
 ## Notes
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Regression cases for the week merge and the progress tests. Run after touching merge_weeks,
-transcript_horizon, progress or followup.
+transcript_horizon, progress, followup, standing or last_week.
 
 The stored weeks are the only record of anything older than the transcripts, so every case
 here is a way history could be lost or degraded.
@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import extract  # noqa: E402
 import timeline  # noqa: E402
 
 HORIZON = datetime(2026, 10, 7, tzinfo=timezone.utc)   # falls inside the week of Oct 5
@@ -71,6 +72,42 @@ FOLLOWUP = [
      [full(d, 0.70) for d in EIGHT], "2026-10-29", ("too soon", 0)),
 ]
 
+# (name, weeks, review, hold wanted). EIGHT[4] is the Monday of Oct 5.
+STANDING = [
+    ("a change with no complete week since it holds",
+     [full(d, 0.70) for d in EIGHT], {"date": "2026-10-29"}, True),
+    ("a change within noise after two weeks holds",
+     [full(d, 0.73) for d in EIGHT[:4]] + [full(d, 0.76) for d in EIGHT[4:6]], {"date": EIGHT[4]}, True),
+    ("a change that cleared the bar rotates",
+     [full(d, 0.70) for d in EIGHT[:4]] + [full(d, 0.85) for d in EIGHT[4:6]], {"date": EIGHT[4]}, False),
+    ("a change with no verdict after four weeks rotates",
+     [full(d, 0.73) for d in EIGHT[:4]] + [full(d, 0.75) for d in EIGHT[4:]], {"date": EIGHT[4]}, False),
+    ("a held change counts its weeks from the day it was first asked for",
+     [full(d, 0.73) for d in EIGHT[:4]] + [full(d, 0.75) for d in EIGHT[4:]],
+     {"date": EIGHT[6], "since": EIGHT[4]}, False),
+]
+
+# (name, review, (verdict, complete weeks since) wanted)
+HELD = [
+    ("a review that held a change is judged from the change's start, not its own date",
+     {"date": EIGHT[6], "since": EIGHT[4]}, ("better", 4)),
+]
+
+
+def utc(*a, tz=timezone.utc):
+    return datetime(*a, tzinfo=tz)
+
+
+# (name, now, (first Monday, next Monday) wanted)
+LAST_WEEK = [
+    ("on a Monday morning, the week that just ended",
+     utc(2026, 11, 2, 9), ("2026-10-26", "2026-11-02")),
+    ("on a Sunday night, still the week before the current one",
+     utc(2026, 11, 8, 23), ("2026-10-26", "2026-11-02")),
+    ("weeks are cut in UTC, as the dashboard rows are",
+     utc(2026, 11, 2, 0, 30, tz=timezone(timedelta(hours=2))), ("2026-10-19", "2026-10-26")),
+]
+
 
 def main():
     bad = 0
@@ -92,7 +129,24 @@ def main():
         if got != want:
             bad += 1
             print(f"FAIL want={want} got={got}: {name}")
-    total = len(CASES) + len(PROGRESS) + len(FOLLOWUP)
+    for name, weeks, review, want in STANDING:
+        got = timeline.standing(weeks, {**review, "metric": "clean_share"})["hold"]
+        if got != want:
+            bad += 1
+            print(f"FAIL want={want} got={got}: {name}")
+    rising = [full(d, 0.70) for d in EIGHT[:4]] + [full(d, 0.85) for d in EIGHT[4:]]
+    for name, review, want in HELD:
+        f = timeline.followup(rising, {**review, "metric": "clean_share"})
+        got = (f["verdict"], f["weeks"])
+        if got != want:
+            bad += 1
+            print(f"FAIL want={want} got={got}: {name}")
+    for name, now, want in LAST_WEEK:
+        got = tuple(d.date().isoformat() for d in extract.last_week(now))
+        if got != want:
+            bad += 1
+            print(f"FAIL want={want} got={got}: {name}")
+    total = len(CASES) + len(PROGRESS) + len(FOLLOWUP) + len(STANDING) + len(HELD) + len(LAST_WEEK)
     print(f"{total - bad}/{total} passed")
     return 1 if bad else 0
 

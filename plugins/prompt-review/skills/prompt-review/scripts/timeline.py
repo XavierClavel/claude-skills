@@ -141,10 +141,13 @@ def ended(w):
 
 def followup(weeks, review):
     """Whether a review's change took: its number over the RECENT complete weeks before the
-    review against the complete weeks since, the last RECENT of them."""
+    change was first asked for against the complete weeks since, the last RECENT of them. A
+    review that held an earlier change is judged from that change's start, like the review
+    that asked for it."""
+    start = review.get("since") or review["date"]
     done = [w for w in weeks if w["complete"]]
-    before = [w for w in done if ended(w) <= review["date"]][-RECENT:]
-    after = [w for w in done if w["week"] >= review["date"]][-RECENT:]
+    before = [w for w in done if ended(w) <= start][-RECENT:]
+    after = [w for w in done if w["week"] >= start][-RECENT:]
     out = {"weeks": len(after), "then": None, "now": None, "z": None, "verdict": "too soon"}
     if before and after:
         row = next(r for r in compare(before, after)[2] if r["metric"] == review["metric"])
@@ -152,6 +155,20 @@ def followup(weeks, review):
     elif before:
         out["then"] = pooled(before)[review["metric"]]
     return out
+
+
+def standing(weeks, review):
+    """Whether a review's change stays the one change for the next review. It holds until its
+    number has moved past the bar either way, or RECENT complete weeks have passed without
+    that: at a few hundred prompts a week, one week can only show a very large move, and a new
+    change every week would leave each one judged on the weeks spent on the next."""
+    f = followup(weeks, review)
+    since = review.get("since") or review["date"]
+    if f["verdict"] in ("better", "worse"):
+        return {"hold": False, "since": since, "why": f"{f['verdict']} after {f['weeks']} complete week(s)"}
+    if f["weeks"] >= RECENT:
+        return {"hold": False, "since": since, "why": f"no verdict after {f['weeks']} complete weeks"}
+    return {"hold": True, "since": since, "why": f"{f['weeks']} of {RECENT} complete weeks since {since}"}
 
 
 def window(p):
@@ -187,6 +204,24 @@ def print_progress(weeks, last):
         for leak in leaks_of(last):
             if leak.get("metric"):
                 tags.setdefault(leak["metric"], f"leak: {leak['name']}")
+    print_rows(rows, tags)
+
+
+def print_week(weeks):
+    """The last complete week against the RECENT complete weeks before it: a weekly review's
+    opening numbers. One week is few prompts, so most moves land within noise."""
+    done = [w for w in weeks if w["complete"]]
+    if len(done) < 2:
+        print("last week: too soon to tell, fewer than two complete weeks")
+        return
+    then, now, rows = compare(done[-RECENT - 1:-1], done[-1:])
+    print(f"last week {now['first']} ({now['prompts']} prompts) against the {then['weeks']} complete "
+          f"week(s) before it ({then['prompts']} prompts). A change counts once it clears {CLEAR} "
+          f"standard errors.")
+    print_rows(rows, {})
+
+
+def print_rows(rows, tags):
     order = {"better": 0, "worse": 1, "within noise": 2, "untested": 3}
     for r in sorted(rows, key=lambda r: order[r["verdict"]]):
         m = r["metric"]
@@ -200,7 +235,9 @@ def print_progress(weeks, last):
 def print_followup(review):
     f = review["followup"]
     m = review["metric"]
-    print(f"last review {review['date']}: {review['change']!r}\n  {LABELS[m]}: {show(m, f['then'])} in the "
+    since = review.get("since") or review["date"]
+    held = f", held since {since}" if since != review["date"] else ""
+    print(f"last review {review['date']}{held}: {review['change']!r}\n  {LABELS[m]}: {show(m, f['then'])} in the "
           f"{RECENT} complete weeks before it", end="")
     if f["verdict"] == "too soon":
         print("; no complete week since it yet, too soon to tell")
@@ -233,6 +270,10 @@ def main():
     ap.add_argument("--stored-page", help="the dashboard's files/index.html document, saved as JSON")
     ap.add_argument("--review", help="this run's review: JSON with change, metric and suggestions")
     ap.add_argument("--days", type=int, default=30, help="the review's window (default 30)")
+    ap.add_argument("--last-week", action="store_true",
+                    help="the review covers the last complete week, Monday to Sunday UTC, in place of --days")
+    ap.add_argument("--rotate", action="store_true",
+                    help="replace the last review's change even while it is on hold; only when the user asks")
     ap.add_argument("--history", default=HISTORY,
                     help=f"the local copy of weeks and reviews, read and rewritten (default {HISTORY})")
     args = ap.parse_args()
@@ -247,10 +288,21 @@ def main():
     today = datetime.now(timezone.utc).date().isoformat()
     earlier = [r for r in reviews if r["date"] < today]
     last = earlier[-1] if earlier else None
+    status = standing(weeks, last) if last else None
+    holding = bool(status and status["hold"] and not args.rotate)
 
     if args.review:
         with open(args.review, encoding="utf-8") as fh:
             review = json.load(fh)
+        if holding:
+            # The last change is still being judged: carry it over with the date it started.
+            for k in ("change", "metric"):
+                mine, held = (review.get(k) or "").strip(), (last.get(k) or "").strip()
+                if mine and mine != held:
+                    sys.exit(f"the last review's change is on hold ({status['why']}): leave change and metric "
+                             f"out of the review, or pass --rotate if the user asked for a new change.\n"
+                             f"  held: {last['change']!r}, tracked by {last['metric']}")
+            review["change"], review["metric"] = last["change"], last["metric"]
         if review.get("metric") not in METRICS:
             sys.exit(f"review metric must be one of {', '.join(METRICS)}, got {review.get('metric')!r}")
         suggestions = [s for s in review.get("suggestions") or [] if (s.get("text") or "").strip()]
@@ -261,12 +313,18 @@ def main():
                 sys.exit(f"suggestion {sug['text']!r} needs the leak it fixes")
             if sug.get("metric") not in (None, *METRICS):
                 sys.exit(f"suggestion metric must be one of {', '.join(METRICS)} or null, got {sug['metric']!r}")
-        cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
-        window_records = [r for r in records if (extract.parse_ts(r["ts"]) or cutoff) >= cutoff]
+        if args.last_week:
+            start, end = extract.last_week()
+            window_records = [r for r in records if start <= (extract.parse_ts(r["ts"]) or end) < end]
+            days = 7
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+            window_records = [r for r in records if (extract.parse_ts(r["ts"]) or cutoff) >= cutoff]
+            days = args.days
         then, now, rows = progress(weeks)
         row = {
             "date": today,
-            "days": args.days,
+            "days": days,
             "prompts": len(window_records),
             "score": round(extract.period_score(window_records), 1) if window_records else None,
             "clean_share": (round(sum(1 for r in window_records if r["score"] >= 10) / len(window_records), 4)
@@ -275,7 +333,9 @@ def main():
                               if window_records else None),
             "change": review.get("change", "").strip(),
             "metric": review["metric"],
-            "then": recent(weeks, review["metric"]),
+            # The day the change was first asked for: today, or the held change's start.
+            "since": status["since"] if holding else today,
+            "then": last.get("then") if holding else recent(weeks, review["metric"]),
             # The suggestions and what is better since tracking started, as this review saw
             # them: the dashboard shows the latest review's to whoever it is shared with.
             "suggestions": [{"text": s["text"].strip(), "fixes": s["fixes"].strip(),
@@ -316,12 +376,19 @@ def main():
         print(f"last {min(RECENT, len(complete))} complete weeks: score {show('score', now['score'])}, "
               f"clean prompts {show('', now['clean_share'])}, friction {show('', now['friction_rate'])}, "
               f"bare go-aheads {show('', now['go_ahead_rate'])}")
+    if args.last_week:
+        print_week(weeks)
     print_progress(weeks, last)
     if last:
-        # The report's opening line: how the last review's change is doing.
+        # The report's opening line: how the last review's change is doing, and whether it stays.
         print_followup(last)
+        if args.rotate:
+            print("change: rotate (on request)")
+        else:
+            print(f"change: {'hold' if status['hold'] else 'rotate'} ({status['why']})")
     if args.review:
-        print(f"review {row['date']}: tracks {row['metric']}, then {show(row['metric'], row['then'])}; "
+        kept = f"held since {row['since']}" if holding else "new"
+        print(f"review {row['date']}: {kept}, tracks {row['metric']}, then {show(row['metric'], row['then'])}; "
               f"{len(row['suggestions'])} suggestions")
     print(f"reviews: {len(reviews)}")
     if not stored_page:

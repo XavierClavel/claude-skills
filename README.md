@@ -45,6 +45,19 @@ three weeks: a week is only captured whole while all its transcripts are on disk
 holds weekly numbers and each review's change, suggestions and verdicts, never prompt text. The
 page source is `assets/dashboard.html`.
 
+Each review asks for one change, and it stays the one change across reviews until its tracked
+number moves past the bar or four complete weeks pass: a single week of prompts can only show a
+very large move.
+
+**Weekly mode.** `/prompt-review --weekly` reviews the last complete week, Monday to Sunday UTC,
+without asking anything, so it can run on a schedule. It writes the report, which quotes your
+prompts, to `~/.claude/prompt-review/reports/<week>.md` and updates the dashboard as a full
+review does. Schedule it on the machine that holds your transcripts, with cron, launchd or
+anything else that can run `claude -p "/prompt-review --weekly"`. A cloud scheduler can't read
+them. Allow the run its Bash, Write and artifact tool calls. If the artifact calls are refused,
+it still saves the weeks locally and the dashboard catches up on the next run that can write
+it. Running it weekly also captures every week whole before its transcripts are deleted.
+
 The score is `10 × 0.5^(waste/12)`, where waste counts only work that had to be redone and
 each time a prompt made you come back costs a halving: one round trip is a 5, two are a 2.5.
 Length and step count are never penalised: a 442-step prompt with no repair is a 10.
