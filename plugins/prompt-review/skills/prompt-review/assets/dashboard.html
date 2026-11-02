@@ -1,5 +1,5 @@
 <meta name="dash-one-writer">
-<meta name="prompt-review-page" content="4">
+<meta name="prompt-review-page" content="5">
 <style>
   .pr { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); }
   .pr-head { display: grid; gap: var(--cds-gap-xs); }
@@ -179,7 +179,7 @@
 
   <section class="pr-card" id="changes">
     <h2>Changes committed to</h2>
-    <p class="pr-note">The one change each review asked for and the number that tracks it, over the <span data-draw="window">—</span> complete weeks before the review and the complete weeks since. A verdict needs a move past <b data-draw="clear">—</b> standard errors.</p>
+    <p class="pr-note">Each change a review asked for and the number that tracks it, over the <span data-draw="window">—</span> complete weeks before it was asked for and the complete weeks since. A change is kept from review to review until it has a verdict or <span data-draw="window">—</span> weeks have passed. A verdict needs a move past <b data-draw="clear">—</b> standard errors.</p>
     <div class="pr-tablebox">
       <table class="pr-table" data-source="commitments" data-row-key="date">
         <thead><tr>
@@ -316,7 +316,7 @@
 
   dash.calc('commitments', {
     title: 'Changes and whether they took',
-    description: 'Each review’s one change with its tracked number over the four complete weeks before the review and the complete weeks since, and the verdict on the move.',
+    description: 'Each change a review asked for, once however many reviews kept it, with its tracked number over the four complete weeks before it was asked for and the complete weeks since, and the verdict on the move.',
     inputs: ['reviews'],
     fn: (reviews) => {
       const labels = {
@@ -325,10 +325,16 @@
         handback_rate: 'Stopped on a question', go_ahead_rate: 'Bare go-aheads',
       };
       const parsed = (v) => { if (typeof v !== 'string') return v ?? null; try { return JSON.parse(v); } catch (e) { return null; } };
-      return reviews.map((r) => {
+      // A change kept by later reviews is one row, dated the day it was asked for, with the
+      // latest review's verdict: every review of it is judged from that day.
+      const byStart = new Map();
+      [...reviews].sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((r) => {
+        byStart.set(String(r.since || r.date).slice(0, 10), r);
+      });
+      return [...byStart].map(([start, r]) => {
         const f = parsed(r.followup) || {};
         return {
-          date: String(r.date).slice(0, 10), change: r.change, metric: r.metric, tracked: labels[r.metric] || r.metric,
+          date: start, change: r.change, metric: r.metric, tracked: labels[r.metric] || r.metric,
           then: f.then ?? null, now: f.now ?? null, weeks: f.weeks ?? 0, verdict: f.verdict || null,
         };
       }).sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -530,7 +536,11 @@
     const share = el.dataset.format === 'pct';
     const pts = g.data.map((w) => ({ w, d: middle(w), v: num(w[key]), full: isComplete(w) })).filter((p) => p.v !== null);
     if (!pts.length) return;
-    const reviews = rv.status === 'ok' ? rv.data.map((r) => ({ r, d: parse(r.date) })) : [];
+    // Marks only the reviews that asked for a new change: a weekly review that kept one adds no line.
+    const reviews = rv.status === 'ok'
+      ? rv.data.filter((r) => !r.since || String(r.since).slice(0, 10) === String(r.date).slice(0, 10))
+        .map((r) => ({ r, d: parse(r.date) }))
+      : [];
     const height = 260;
     const bottom = 28;
     const top = 22;
