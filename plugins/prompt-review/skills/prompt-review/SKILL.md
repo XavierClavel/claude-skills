@@ -433,14 +433,24 @@ command line is not a typed prompt, so it never grades itself. Allow it `Skill`,
 **The data.** Steps 1, 1b, 3 and 4 of "Get the data" with `--last-week` in place of `--days`:
 
 ```bash
-python3 scripts/extract.py --last-week --score
-python3 scripts/extract.py --last-week --stats
-python3 scripts/extract.py --last-week --friction-only
-python3 scripts/extract.py --last-week --shortcuts --top 10
+python3 <skill>/scripts/extract.py --last-week --score
+python3 <skill>/scripts/extract.py --last-week --stats
+python3 <skill>/scripts/extract.py --last-week --friction-only
+python3 <skill>/scripts/extract.py --last-week --shortcuts --top 10
 ```
 
-Skip `--correlate`: a week is too few prompts to split by length. The cold and warm scores
-from `--score` stand in for it, and the curves belong to a full review. Every `timeline.py` run
+**The length check, only when a change is picked.** Run step 3 of "The evolution dashboard"
+before the data above. When it prints `change: rotate` or `change: new`, this review picks the
+next change, so it also runs step 2 of "Get the data" over 30 days:
+
+```bash
+python3 <skill>/scripts/extract.py --days 30 --correlate
+```
+
+A week is too few prompts to split by length, and the curves move slowly. That is why they are
+read only here, at most once every four weeks, where they help: when they show where the
+openers lose turns, that leak competes for the new change like any other. On `change: hold`,
+skip it. The cold and warm scores from `--score` stand in for it. Every `timeline.py` run
 takes `--last-week` too, in place of `--days 30` in step 5. It then prints `last week` against
 the complete weeks before it, each number with its verdict, and records the review over that
 week.
@@ -457,9 +467,13 @@ week.
 5. **What didn't** — up to three leaks from the week, each with its quoted prompts and its cost.
    When a leak is also among the last review's suggestions, say so: that is a habit, not a
    bad week.
-6. **Rewrites** — 3 to 5, from the week's prompts only, in the full format.
-7. **Suggestions** — the table, its first row the held change or, on `rotate`, the new one.
-8. **The dashboard link**, last, in one line.
+6. **Cold vs warm, over 30 days** — only on `change: rotate` or `change: new`. Both curves with
+   their n's, read as in a full report ("Cold vs warm"), and what they mean for the openers.
+   Say which buckets are too small to lean on.
+7. **Rewrites** — 3 to 5, from the week's prompts only, in the full format.
+8. **Suggestions** — the table, its first row the held change or, on `rotate` or `new`, the
+   new one. When it comes from the length check, its cost is over the 30 days: say so.
+9. **The dashboard link**, last, in one line.
 
 ## Notes
 

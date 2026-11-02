@@ -52,7 +52,8 @@ very large move.
 **Weekly mode.** `/prompt-review --weekly` reviews the last complete week, Monday to Sunday UTC,
 without asking anything, so it can run on a schedule. It writes the report, which quotes your
 prompts, to `~/.claude/prompt-review/reports/<week>.md` and updates the dashboard as a full
-review does. Schedule it on the machine that holds your transcripts: a cloud scheduler can't
+review does. When it picks a new change, at most every four weeks, it also checks over 30 days
+whether your openers would gain from more context, which a week is too few prompts to tell. Schedule it on the machine that holds your transcripts: a cloud scheduler can't
 read them. Start it as an interactive session if your scheduler can, since a headless
 `claude -p` session may have no artifact tools and then only updates the local history until a
 run that has them. Allow `Skill`, `ToolSearch`, `Read`, `Write`, `Bash(python3:*)`,
