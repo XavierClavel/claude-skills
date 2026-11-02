@@ -401,6 +401,8 @@ def main():
             print("change: rotate (on request)")
         else:
             print(f"change: {'hold' if status['hold'] else 'rotate'} ({status['why']})")
+    else:
+        print("change: new (no earlier review)")
     if args.review:
         kept = f"held since {row['since']}" if holding else "new"
         print(f"review {row['date']}: {kept}, tracks {row['metric']}, then {show(row['metric'], row['then'])}; "
